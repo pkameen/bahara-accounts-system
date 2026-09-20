@@ -13,7 +13,8 @@ export default function Layout({ children }) {
   const { currentUser, userProfile, role, logout } = useAuth();
   
   // Format page title
-  const pageTitle = location.pathname.substring(1).replace("-", " ") || "Dashboard";
+  const rawTitle = location.pathname.substring(1).replace("-", " ");
+  const pageTitle = location.pathname === "/employee-dashboard" ? "Dashboard" : (rawTitle || "Dashboard");
   const userName = userProfile?.name || currentUser?.displayName || currentUser?.email?.split('@')[0] || "User";
   const roleLabel = role === "admin" ? "Admin" : "Employee";
 

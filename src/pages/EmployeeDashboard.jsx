@@ -144,7 +144,7 @@ export default function EmployeeDashboard() {
           <h1 className="text-4xl font-bold text-[#111] tracking-tight font-['Poppins']">
             Welcome, {employeeName}
           </h1>
-          <p className="text-gray-500 mt-1 font-medium">Employee Dashboard • Personal Sales & Contribution</p>
+          <p className="text-gray-500 mt-1 font-medium">Dashboard • Personal Sales & Contribution</p>
         </div>
         <DateFilter filterType={filterType} setFilterType={setFilterType} startDate={startDate} setStartDate={setStartDate} endDate={endDate} setEndDate={setEndDate} />
       </motion.div>
