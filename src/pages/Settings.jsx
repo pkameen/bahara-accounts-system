@@ -40,11 +40,10 @@ const Settings = () => {
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingInvoice, setSavingInvoice] = useState(false);
-  const [savingPrefs, setSavingPrefs] = useState(false);
 
   // States
   const [businessProfile, setBusinessProfile] = useState({ 
-    businessName: "Ajeer Graphy",
+    businessName: "Bahara International",
     ownerName: "",
     mobileNumber: "",
     whatsappNumber: "",
@@ -100,7 +99,7 @@ const Settings = () => {
     try {
       await set(ref(db, "settings/businessProfile"), businessProfile);
       toast.success("Business Profile Updated");
-    } catch (err) {
+    } catch {
       toast.error("Failed to update profile");
     }
     setSavingProfile(false);
@@ -112,21 +111,10 @@ const Settings = () => {
     try {
       await set(ref(db, "settings/invoice"), invoiceSettings);
       toast.success("Invoice Settings Updated");
-    } catch (err) {
+    } catch {
       toast.error("Failed to update invoice settings");
     }
     setSavingInvoice(false);
-  };
-
-  const savePreferences = async () => {
-    setSavingPrefs(true);
-    try {
-      await set(ref(db, "settings/preferences"), preferences);
-      toast.success("Preferences Saved");
-    } catch (err) {
-      toast.error("Failed to save preferences");
-    }
-    setSavingPrefs(false);
   };
 
   // Trigger preference save whenever it changes
@@ -160,7 +148,7 @@ const Settings = () => {
         await remove(ref(db, "products"));
         await remove(ref(db, "expenses"));
         toast.success("App Data Reset Successfully");
-      } catch (err) {
+      } catch {
         toast.error("Failed to reset data");
       }
     }
@@ -318,9 +306,7 @@ const Settings = () => {
               <Toggle label="Dark Mode Theme" checked={preferences.darkMode} onChange={(val) => setPreferences({ ...preferences, darkMode: val })} />
               <Toggle label="Compact Dashboard Layout" checked={preferences.compactDashboard} onChange={(val) => setPreferences({ ...preferences, compactDashboard: val })} />
               <Toggle label="Show Analytics Charts" checked={preferences.showCharts} onChange={(val) => setPreferences({ ...preferences, showCharts: val })} />
-              <Toggle label="Enable System Notifications" checked={preferences.enableNotifications} onChange={(val) => setPreferences({ ...preferences, enableNotifications: val })} />
             </div>
-            {savingPrefs && <p className="text-xs text-[#D4AF37] font-semibold text-right mt-4 animate-pulse">Syncing preferences...</p>}
           </motion.div>
 
           {/* Account Security */}

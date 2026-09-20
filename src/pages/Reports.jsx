@@ -15,9 +15,9 @@ import {
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
-import { 
-  FiDollarSign, 
-  FiPackage, 
+import {
+  FiDollarSign,
+  FiPackage,
   FiTrendingDown,
   FiBriefcase,
   FiImage,
@@ -30,18 +30,28 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import ReportTable from "../components/ReportTable";
 import DateFilter from "../components/DateFilter";
 import SalesCard from "../components/SalesCard";
+import BySalesmanChart from "../components/BySalesmanChart";
+import ExpenseByCategoryChart from "../components/ExpenseByCategoryChart";
+import ExpenseBySalesmanChart from "../components/ExpenseBySalesmanChart";
+import { calculateEmployeePerformance } from "../utils/calculations";
+
+
 
 const Reports = () => {
   const [sales, setSales] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [products, setProducts] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [filterType, setFilterType] = useState("today");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [deletingInvoiceId, setDeletingInvoiceId] = useState(null);
   const [selectedProductId, setSelectedProductId] = useState("");
+  const [selectedEmployeeUid, setSelectedEmployeeUid] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("all");
-  
+
+
   const navigate = useNavigate();
 
   // Fetch Data from Firebase
@@ -49,6 +59,8 @@ const Reports = () => {
     const salesRef = ref(db, "invoices");
     const expRef = ref(db, "expenses");
     const prodRef = ref(db, "products");
+    const empRef = ref(db, "employees");
+    const catRef = ref(db, "expenseCategories");
 
     onValue(salesRef, (snapshot) => {
       const data = snapshot.val();
@@ -76,11 +88,31 @@ const Reports = () => {
         setProducts([]);
       }
     });
+
+    onValue(empRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setEmployees(Object.keys(data).map((key) => ({ uid: key, ...data[key] })));
+      } else {
+        setEmployees([]);
+      }
+    });
+
+    onValue(catRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setCategories(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
+      } else {
+        setCategories([]);
+      }
+    });
   }, []);
+
 
   // Centralized Filter and Calculation Logic
   const {
     filteredSales,
+    filteredExpenses,
     turnover,
     turnoverGrowth,
     expenseTotal,
@@ -92,6 +124,7 @@ const Reports = () => {
     chartData,
     topProducts
   } = useMemo(() => {
+
     const now = new Date();
     let currentSales = [];
     let prevSales = [];
@@ -138,6 +171,13 @@ const Reports = () => {
           }
         }
 
+        if (selectedEmployeeUid) {
+          if (item.createdByUid !== selectedEmployeeUid) {
+            isCurrent = false;
+            isPrev = false;
+          }
+        }
+
         if (isCurrent) {
           if (isExpense) currentExp.push(item);
           else currentSales.push(item);
@@ -178,12 +218,12 @@ const Reports = () => {
     // 3. Process Product Quantities and Chart Data
     currentSales.forEach((sale) => {
       // Chart grouping
-      let saleDateVal = sale.createdAt || 0();
+      let saleDateVal = sale.createdAt || 0;
       if (sale.invoiceDate) {
         const [year, month, day] = sale.invoiceDate.split('-');
         saleDateVal = new Date(year, month - 1, day).getTime();
       }
-      
+
       const dateStr = new Date(saleDateVal).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       if (!dateGroupMap[dateStr]) dateGroupMap[dateStr] = { date: dateStr, rawDate: saleDateVal, Revenue: 0 };
       dateGroupMap[dateStr].Revenue += Number(sale.totalAmount) || 0;
@@ -197,16 +237,17 @@ const Reports = () => {
       // Product iterations
       (sale.products || []).forEach(p => {
         const qty = Number(p.quantity) || 0;
-        
+
         items += qty;
 
         // Top Products Aggregation
-        if (p.productId) {
-          if (!productMap[p.productId]) {
-            productMap[p.productId] = { id: p.productId, name: p.productName, category: p.category, qty: 0, revenue: 0 };
+        if (p.productId || p.productName) {
+          const pId = p.productId || p.productName;
+          if (!productMap[pId]) {
+            productMap[pId] = { id: pId, name: p.productName, category: p.category, qty: 0, revenue: 0 };
           }
-          productMap[p.productId].qty += qty;
-          productMap[p.productId].revenue += Number(p.total || 0);
+          productMap[pId].qty += qty;
+          productMap[pId].revenue += Number(p.total || 0);
         }
       });
     });
@@ -222,6 +263,7 @@ const Reports = () => {
 
     return {
       filteredSales: currentSales,
+      filteredExpenses: currentExp,
       turnover: currentTurnover,
       turnoverGrowth: filterType === "custom" ? null : (tGrowth > 0 ? `+${tGrowth.toFixed(1)}%` : `${tGrowth.toFixed(1)}%`),
       expenseTotal: currentExpenseTotal,
@@ -233,13 +275,19 @@ const Reports = () => {
       chartData: chartArr,
       topProducts: top3
     };
-  }, [sales, expenses, products, filterType, startDate, endDate, paymentFilter]);
+  }, [sales, expenses, products, filterType, startDate, endDate, paymentFilter, selectedEmployeeUid]);
+
+  // Unified Employee Performance Calculation Matrix
+  const employeePerformanceList = useMemo(() => {
+    return calculateEmployeePerformance(filteredSales, filteredExpenses, employees);
+  }, [filteredSales, filteredExpenses, employees]);
+
 
   // Advanced Product Sales Analytics
   const productAnalytics = useMemo(() => {
     const targetId = selectedProductId || (topProducts.length > 0 ? topProducts[0].id : (products.length > 0 ? products[0].id : null));
     if (!targetId) return null;
-    
+
     const dbProduct = products.find(p => p.id === targetId);
     if (!dbProduct) return null;
 
@@ -312,20 +360,20 @@ const Reports = () => {
       const invToDelete = sales.find(s => s.id === deletingInvoiceId);
       const updates = {};
       updates[`invoices/${deletingInvoiceId}`] = null;
-      
+
       // Return stock safely before destroying the invoice
       if (invToDelete && invToDelete.products) {
         invToDelete.products.forEach(p => {
           if (p.productId) {
             const dbProd = products.find(prod => prod.id === p.productId);
             if (dbProd) {
-               updates[`products/${p.productId}/stock`] = Number(dbProd.stock || 0) + Number(p.quantity || 0);
+              updates[`products/${p.productId}/stock`] = Number(dbProd.stock || 0) + Number(p.quantity || 0);
             }
           }
         });
       }
       await update(ref(db), updates);
-      toast.success("Invoice deleted successfully", { style: { borderRadius: '14px', background: '#111', color: '#fff' }});
+      toast.success("Invoice deleted successfully", { style: { borderRadius: '14px', background: '#111', color: '#fff' } });
     } catch {
       toast.error("Failed to delete invoice");
     }
@@ -337,7 +385,7 @@ const Reports = () => {
       await update(ref(db), {
         [`invoices/${invoiceId}/paymentStatus`]: "paid"
       });
-      toast.success("Invoice marked as Paid!", { style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }});
+      toast.success("Invoice marked as Paid!", { style: { borderRadius: '14px', background: '#111', color: '#D4AF37' } });
     } catch {
       toast.error("Failed to update status");
     }
@@ -353,7 +401,22 @@ const Reports = () => {
           <h1 className="text-4xl font-bold text-[#111] tracking-tight">Business Analytics</h1>
           <p className="text-gray-500 mt-2 font-medium">Detailed financial and product performance</p>
         </div>
-        <div className="w-full md:w-auto flex flex-col sm:flex-row items-center gap-4">
+        <div className="w-full md:w-auto flex flex-col sm:flex-row flex-wrap items-center gap-4">
+          {/* Employee Filter */}
+          <div className="relative group w-full sm:w-auto min-w-[200px]">
+            <select
+              value={selectedEmployeeUid}
+              onChange={(e) => setSelectedEmployeeUid(e.target.value)}
+              className="w-full bg-white border border-gray-200 hover:border-[#D4AF37]/50 focus:border-[#D4AF37] rounded-[20px] text-xs font-bold text-[#111] p-3 appearance-none cursor-pointer outline-none transition-all shadow-sm"
+            >
+              <option value="">All Employees</option>
+              {employees.map(emp => (
+                <option key={emp.uid} value={emp.uid}>{emp.name || emp.email}</option>
+              ))}
+            </select>
+            <FiChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none group-hover:text-[#D4AF37] transition-colors" />
+          </div>
+
           <div className="bg-white premium-shadow border border-gray-100 p-1.5 rounded-[20px] flex items-center h-full w-full sm:w-auto">
             {['all', 'paid', 'pending'].map(f => (
               <button
@@ -388,19 +451,19 @@ const Reports = () => {
         </div>
       </motion.div>
 
-      {/* Analytics Graphs */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="mb-10">
-        
-        {/* Revenue Area Chart */}
+      {/* Comprehensive Reports Analytics */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="space-y-8 mb-10">
+
+        {/* 1. Revenue Trend Area Chart */}
         <div className="bg-white premium-shadow border border-gray-100 rounded-[30px] p-8 w-full">
-          <h3 className="text-xl font-bold text-[#111] mb-6 tracking-tight">Revenue Trend</h3>
+          <h3 className="text-xl font-bold text-[#111] mb-6 tracking-tight font-['Poppins']">Revenue Trend</h3>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorTurnover" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#D4AF37" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
@@ -412,7 +475,87 @@ const Reports = () => {
             </ResponsiveContainer>
           </div>
         </div>
+
+        {/* 2. By Salesman Revenue Donut Chart */}
+        <BySalesmanChart invoices={filteredSales} employees={employees} />
+
+        {/* 3. Expense by Category Donut Chart */}
+        <ExpenseByCategoryChart expenses={filteredExpenses} categoriesList={categories} />
+
+        {/* 4. Expense by Salesman / Creator Donut Chart */}
+        <ExpenseBySalesmanChart expenses={filteredExpenses} employees={employees} />
+
+        {/* 5. Unified Employee Performance Matrix Table */}
+        <div className="bg-white premium-shadow border border-gray-100 rounded-[30px] overflow-hidden">
+          <div className="p-6 sm:p-8 border-b border-gray-100">
+            <h3 className="text-xl font-bold text-[#111] font-['Poppins']">Employee & Salesman Performance</h3>
+            <p className="text-xs text-gray-400 mt-1 font-medium">
+              Net profit contribution matrix combining sales revenue generated vs expenses created for the selected period
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                <tr>
+                  <th className="p-4 sm:p-5">Salesperson / Employee</th>
+                  <th className="p-4 sm:p-5 text-right">Sales Revenue</th>
+                  <th className="p-4 sm:p-5 text-right">Expenses Created</th>
+                  <th className="p-4 sm:p-5 text-right">Net Profit / Contribution</th>
+                  <th className="p-4 sm:p-5 text-center">Invoices / Pcs</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-gray-100 text-xs font-semibold text-[#111]">
+                {employeePerformanceList.length > 0 ? (
+                  employeePerformanceList.map((emp) => (
+                    <tr key={emp.uid} className="hover:bg-gray-50/80 transition-colors">
+                      <td className="p-4 sm:p-5 font-bold font-['Poppins']">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-[#111] text-[#D4AF37] font-bold text-xs flex items-center justify-center shrink-0">
+                            {emp.name?.charAt(0).toUpperCase() || "E"}
+                          </div>
+                          <div>
+                            <span className="text-sm font-bold text-[#111]">{emp.name}</span>
+                            <span className="text-[10px] text-gray-400 font-normal block capitalize">{emp.isAdmin ? "Admin" : "Employee"}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="p-4 sm:p-5 text-right font-bold text-green-600 font-['Poppins']">
+                        ₹{(emp.revenue || 0).toLocaleString('en-IN')}
+                      </td>
+
+                      <td className="p-4 sm:p-5 text-right font-bold text-red-500 font-['Poppins']">
+                        ₹{(emp.expenses || 0).toLocaleString('en-IN')}
+                      </td>
+
+                      <td className="p-4 sm:p-5 text-right font-bold font-['Poppins']">
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${emp.profit >= 0 ? "bg-green-50 text-green-600 border border-green-200" : "bg-red-50 text-red-600 border border-red-200"}`}>
+                          ₹{(emp.profit || 0).toLocaleString('en-IN')}
+                        </span>
+                      </td>
+
+                      <td className="p-4 sm:p-5 text-center text-gray-500">
+                        {emp.invoicesCount} inv ({emp.itemsSold} pcs)
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-gray-400 font-medium">
+                      No employee performance records found for this period.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </motion.div>
+
+
 
       {/* Product Sales Analytics */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="mb-10">
@@ -422,7 +565,7 @@ const Reports = () => {
             <p className="text-gray-500 mt-1 font-medium text-sm">Track product-wise sales performance and stock movement.</p>
           </div>
           <div className="relative group min-w-[250px]">
-            <select 
+            <select
               value={selectedProductId || (productAnalytics ? productAnalytics.id : "")}
               onChange={(e) => setSelectedProductId(e.target.value)}
               className="w-full bg-white border border-gray-200 hover:border-[#D4AF37]/50 focus:border-[#D4AF37] rounded-xl text-sm font-bold text-[#111] p-3.5 appearance-none cursor-pointer outline-none transition-all shadow-sm">
@@ -442,7 +585,7 @@ const Reports = () => {
               <div className="absolute top-0 right-0 w-32 h-32 bg-[#D4AF37] blur-[70px] opacity-20 rounded-full group-hover:opacity-40 transition-opacity"></div>
               <div className="flex items-start justify-between relative z-10 mb-6">
                 <span className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 shadow-sm ${productAnalytics.badge.color}`}>
-                   {productAnalytics.badge.icon} {productAnalytics.badge.text}
+                  {productAnalytics.badge.icon} {productAnalytics.badge.text}
                 </span>
                 <span className="bg-white/10 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider backdrop-blur-md">
                   {productAnalytics.category}
@@ -459,19 +602,19 @@ const Reports = () => {
                 <h4 className="text-xl font-bold font-['Poppins'] text-[#c4c2c2] tracking-tight mb-1 px-4">{productAnalytics.productName}</h4>
                 <p className="text-xs text-gray-400 font-medium uppercase tracking-widest">{productAnalytics.trend}</p>
               </div>
-              <div className="grid grid-cols-2 gap-4 relative z-10 border-t border-white/10 pt-6"> 
-                 <div>
-                   <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Quantity Sold</p>
-                   <p className="text-2xl font-bold text-white">{productAnalytics.totalQty} <span className="text-sm text-gray-500 font-medium">pcs</span></p>
-                 </div>
-                 <div>
-                   <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Revenue</p>
-                   <p className="text-2xl font-bold text-[#D4AF37]">₹{productAnalytics.totalRev}</p>
-                 </div>
-                 <div className="col-span-2 pt-2 border-t border-white/5 mt-2">
-                   <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Last Sold Date</p>
-                   <p className="text-sm font-bold text-white">{productAnalytics.lastSoldDate}</p>
-                 </div>
+              <div className="grid grid-cols-2 gap-4 relative z-10 border-t border-white/10 pt-6">
+                <div>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Quantity Sold</p>
+                  <p className="text-2xl font-bold text-white">{productAnalytics.totalQty} <span className="text-sm text-gray-500 font-medium">pcs</span></p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Revenue</p>
+                  <p className="text-2xl font-bold text-[#D4AF37]">₹{productAnalytics.totalRev}</p>
+                </div>
+                <div className="col-span-2 pt-2 border-t border-white/5 mt-2">
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Last Sold Date</p>
+                  <p className="text-sm font-bold text-white">{productAnalytics.lastSoldDate}</p>
+                </div>
               </div>
             </div>
 

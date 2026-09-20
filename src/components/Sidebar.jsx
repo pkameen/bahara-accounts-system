@@ -1,22 +1,42 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { 
   FiPieChart, FiShoppingBag, FiPlus, 
-  FiFileText, FiDollarSign, FiSettings, FiX
+  FiFileText, FiDollarSign, FiSettings, FiUsers, FiUser, FiLogOut, FiX
 } from "react-icons/fi";
-import logoIcon from '../assets/caligraphy.logo.jpeg'; 
+import { useAuth } from "../context/AuthContext";
+import logoIcon from '../assets/bahara.logo.jpg'; 
+import { InstallAppButton } from "./PwaBanner";
 
-const navItems = [
+const adminNavItems = [
   { name: "Dashboard", path: "/dashboard", icon: <FiPieChart /> },
   { name: "Products", path: "/products", icon: <FiShoppingBag /> },
   { name: "Add Product", path: "/add-product", icon: <FiPlus /> },
   { name: "Reports", path: "/reports", icon: <FiFileText /> },
   { name: "Expenses", path: "/expenses", icon: <FiDollarSign /> },
   { name: "Invoice", path: "/invoice", icon: <FiFileText /> },
+  { name: "Employees", path: "/employees", icon: <FiUsers /> },
   { name: "Settings", path: "/settings", icon: <FiSettings /> },
 ];
 
+const employeeNavItems = [
+  { name: "Dashboard", path: "/employee-dashboard", icon: <FiPieChart /> },
+  { name: "Create Invoice", path: "/invoice", icon: <FiFileText /> },
+  { name: "My Expenses", path: "/expenses", icon: <FiDollarSign /> },
+  { name: "My Profile", path: "/profile", icon: <FiUser /> },
+];
+
 export default function Sidebar({ isOpen, setIsOpen }) {
+  const { role, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const navItems = role === "employee" ? employeeNavItems : adminNavItems;
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
+  };
+
   return (
     <>
       {/* Mobile Backdrop */}
@@ -35,12 +55,14 @@ export default function Sidebar({ isOpen, setIsOpen }) {
         {/* Branding */}
         <div className="flex items-center justify-between px-7 py-9 relative mt-2 mb-2">
           <div className="flex items-center gap-4 group cursor-default">
-            <div className="w-12 h-12 rounded-[15px] mt-3 bg-gradient-to-br from-white/10 to-white/5 border border-white/10 flex items-center justify-center shrink-0 shadow-lg group-hover:border-[#D4AF37]/50 group-hover:shadow-[0_0_15px_rgba(212,175,55,0.2)] transition-all duration-500">
-              <img src={logoIcon} alt="Logo" className="w-10 h-10 object-contain filter invert opacity-90 group-hover:scale-110 transition-transform duration-500" />
+            <div className="w-12 h-12 rounded-[15px] mt-3 bg-gradient-to-br from-white/10 to-white/5 border border-white/10 flex items-center justify-center shrink-0 shadow-lg group-hover:border-[#D4AF37]/50 group-hover:shadow-[0_0_15px_rgba(212,175,55,0.2)] transition-all duration-500 overflow-hidden">
+              <img src={logoIcon} alt="Bahara International Logo" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
             </div>
             <div className="flex flex-col justify-center">
-              <h2 className="text-white font-bold tracking-[0.10em] text-[20px] mt-3.5   whitespace-nowrap leading-none font-['Poppins']">Ajeer Graphy</h2>
-              <p className="text-[#D4AF37] text-[9px] tracking-[0.63em] uppercase mt-1 font-bold">Accounts System</p>
+              <h2 className="text-white font-bold tracking-tight text-[17px] mt-3.5 whitespace-nowrap leading-tight font-['Poppins']">Bahara International</h2>
+              <p className="text-[#D4AF37] text-[8px] tracking-wider uppercase mt-0.5 font-bold">
+                {role === "employee" ? "Sales Portal" : "Global Spice Export"}
+              </p>
             </div>
           </div>
           <button onClick={() => setIsOpen(false)} className="lg:hidden text-gray-400 hover:text-white text-2xl absolute right-6">
@@ -49,7 +71,7 @@ export default function Sidebar({ isOpen, setIsOpen }) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-5 space-y-2 overflow-y-auto pb-8 custom-scrollbar">
+        <nav className="flex-1 px-5 space-y-2 overflow-y-auto pb-4 custom-scrollbar">
           {navItems.map((item) => (
             <NavLink
               key={item.name}
@@ -77,6 +99,19 @@ export default function Sidebar({ isOpen, setIsOpen }) {
             </NavLink>
           ))}
         </nav>
+
+        {/* Sidebar Footer */}
+        <div className="p-5 border-t border-white/5 space-y-3">
+          <InstallAppButton className="w-full justify-center" />
+
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-[18px] bg-white/5 text-gray-400 hover:bg-red-500/10 hover:text-red-400 border border-white/5 hover:border-red-500/20 font-bold transition-all text-sm cursor-pointer"
+          >
+            <FiLogOut className="text-lg" />
+            <span>Sign Out</span>
+          </button>
+        </div>
       </aside>
     </>
   );
