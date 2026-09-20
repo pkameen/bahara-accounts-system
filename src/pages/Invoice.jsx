@@ -479,56 +479,12 @@ const Invoice = () => {
     setLoading(false);
   };
 
-  // Native Share & Fallback
-  const handleShare = async () => {
-    setIsSharing(true);
-    try {
-      const element = invoiceRef.current;
-      const canvas = await html2canvas(element, { scale: 3, useCORS: true });
-      const data = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      let imgHeight = (canvas.height * pdfWidth) / canvas.width;
-      let imgWidth = pdfWidth;
-      
-      if (imgHeight > pageHeight) {
-        const ratio = pageHeight / imgHeight;
-        imgHeight = pageHeight;
-        imgWidth = pdfWidth * ratio;
-      }
-      
-      const offsetX = (pdfWidth - imgWidth) / 2;
-      pdf.addImage(data, "PNG", offsetX, 0, imgWidth, imgHeight);
-      
-      const pdfFilename = `${invoiceNumber.replace('-', ' -')}.pdf`;
-      const pdfBlob = pdf.output("blob");
-      const file = new File([pdfBlob], pdfFilename, { type: "application/pdf" });
-
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: `Invoice ${invoiceNumber}`,  
-        });
-      } else {
-        pdf.save(pdfFilename);
-        toast("Sharing not supported on this device", {
-          icon: '⚠️',
-          style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
-        });
-      }
-    } catch (error) {
-      if (error.name !== "AbortError") {
-        console.error("Error sharing:", error);
-        toast.error("Failed to share invoice");
-      }
-    }
-    setIsSharing(false);
-  };
-
-  // PDF Download
-  const downloadPDF = async () => {
+  // Helper to generate Invoice PDF from live preview
+  const generateInvoicePdf = async () => {
     const element = invoiceRef.current;
+    if (!element) {
+      throw new Error("Invoice preview element not found");
+    }
     const canvas = await html2canvas(element, { scale: 3, useCORS: true });
     const data = canvas.toDataURL("image/png");
     const pdf = new jsPDF("p", "mm", "a4");
@@ -545,7 +501,62 @@ const Invoice = () => {
     
     const offsetX = (pdfWidth - imgWidth) / 2;
     pdf.addImage(data, "PNG", offsetX, 0, imgWidth, imgHeight);
-    pdf.save(`Bahara_International_Invoice_${invoiceNumber}.pdf`);
+    return pdf;
+  };
+
+  // Native Share & Fallback
+  const handleShare = async () => {
+    setIsSharing(true);
+    try {
+      const pdf = await generateInvoicePdf();
+      const formattedInvNum = (invoiceNumber || "100").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const pdfFilename = `Bahara_Invoice_${formattedInvNum}.pdf`;
+      const pdfBlob = pdf.output("blob");
+      const file = new File([pdfBlob], pdfFilename, {
+        type: "application/pdf",
+        lastModified: Date.now(),
+      });
+
+      const canShareFiles =
+        typeof navigator !== "undefined" &&
+        !!navigator.share &&
+        !!navigator.canShare &&
+        navigator.canShare({ files: [file] });
+
+      if (canShareFiles) {
+        await navigator.share({
+          title: `Invoice ${invoiceNumber}`,
+          text: `Bahara International Invoice ${invoiceNumber}`,
+          files: [file],
+        });
+      } else {
+        // Fallback for browsers/devices that don't support file sharing
+        pdf.save(pdfFilename);
+        toast("File sharing is not supported on this browser. The invoice PDF has been downloaded.", {
+          icon: 'ℹ️',
+          style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
+        });
+      }
+    } catch (error) {
+      if (error.name !== "AbortError" && error.name !== "NotAllowedError") {
+        console.error("Error sharing invoice:", error);
+        toast.error("Failed to share invoice");
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  // PDF Download
+  const downloadPDF = async () => {
+    try {
+      const pdf = await generateInvoicePdf();
+      const formattedInvNum = (invoiceNumber || "100").replace(/[^a-zA-Z0-9_-]/g, "_");
+      pdf.save(`Bahara_International_Invoice_${formattedInvNum}.pdf`);
+    } catch (error) {
+      console.error("Error downloading PDF:", error);
+      toast.error("Failed to generate PDF");
+    }
   };
 
   return (
