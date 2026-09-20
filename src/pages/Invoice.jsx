@@ -80,19 +80,28 @@ const ProductSelector = ({ selectedProductId, selectedProductName, onSelectProdu
           <div className="relative flex items-center">
             <input
               type="text"
-              placeholder="Search & Select Product ▼"
+              readOnly={availableProducts.length === 0}
+              placeholder={
+                availableProducts.length === 0
+                  ? "No products available. Please add products from Admin."
+                  : "Search & Select Product ▼"
+              }
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
                 setIsOpen(true);
               }}
-              onFocus={() => setIsOpen(true)}
-              className="w-full bg-white border border-gray-200 focus:border-[#D4AF37]/50 rounded-xl text-sm font-semibold text-[#111] outline-none transition-all p-3.5 pr-10"
+              onFocus={() => {
+                if (availableProducts.length > 0) setIsOpen(true);
+              }}
+              className={`w-full bg-white border border-gray-200 focus:border-[#D4AF37]/50 rounded-xl text-sm font-semibold text-[#111] outline-none transition-all p-3.5 pr-10 ${
+                availableProducts.length === 0 ? "bg-gray-100 cursor-not-allowed text-gray-400" : ""
+              }`}
             />
             <FiPackage className="absolute right-3.5 text-gray-400 pointer-events-none" />
           </div>
 
-          {isOpen && (
+          {isOpen && availableProducts.length > 0 && (
             <div className="absolute z-50 left-0 right-0 top-full mt-1.5 bg-white border border-gray-100 rounded-2xl shadow-2xl max-h-60 overflow-y-auto">
               {filteredProducts.length > 0 ? (
                 filteredProducts.map((ap) => (
@@ -126,6 +135,7 @@ const ProductSelector = ({ selectedProductId, selectedProductName, onSelectProdu
     </div>
   );
 };
+
 
 const Invoice = () => {
   const invoiceRef = useRef();
@@ -611,21 +621,23 @@ const Invoice = () => {
                     />
                   </div>
                   
-                  {/* Automatically Populated Price (READ-ONLY) */}
+                  {/* Automatically Populated Price (MANUALLY EDITABLE FOR THIS INVOICE ONLY) */}
                   <div className="w-full md:w-32 relative">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Price (Fixed)</label>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Rate (₹)</label>
                     <div className="relative flex items-center">
                       <span className="absolute left-3.5 text-gray-400 font-bold text-sm">₹</span>
                       <input 
                         type="number" 
-                        readOnly
-                        disabled
+                        min="0"
+                        step="any"
                         value={p.price} 
-                        className="w-full bg-gray-100 border border-gray-200 text-sm font-bold text-gray-700 rounded-xl p-3.5 pl-8 cursor-not-allowed outline-none" 
+                        onChange={(e) => updateProductRow(p.id, "price", e.target.value)}
+                        className="w-full bg-white border border-gray-200 focus:border-[#D4AF37]/50 text-sm font-bold text-[#111] rounded-xl p-3.5 pl-8 outline-none transition-all" 
                         placeholder="0" 
                       />
                     </div>
                   </div>
+
 
                   {/* Quantity (EDITABLE) */}
                   <div className="w-full md:w-24 relative">

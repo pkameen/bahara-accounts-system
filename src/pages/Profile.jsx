@@ -59,9 +59,18 @@ export default function Profile() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="md:col-span-5 bg-[#111] text-white rounded-[32px] p-8 flex flex-col items-center text-center shadow-xl relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-[#D4AF37] blur-[70px] opacity-20 rounded-full" />
           
-          <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-white/20 to-white/5 border border-[#D4AF37]/50 flex items-center justify-center text-[#D4AF37] font-bold text-4xl mb-4 shadow-xl">
-            {name.charAt(0).toUpperCase()}
-          </div>
+          {userProfile?.photoURL ? (
+            <img
+              src={userProfile.photoURL}
+              alt={name}
+              className="w-24 h-24 rounded-3xl object-cover border-2 border-[#D4AF37] mb-4 shadow-xl"
+            />
+          ) : (
+            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-white/20 to-white/5 border border-[#D4AF37]/50 flex items-center justify-center text-[#D4AF37] font-bold text-4xl mb-4 shadow-xl">
+              {name.charAt(0).toUpperCase()}
+            </div>
+          )}
+
 
           <h2 className="text-2xl font-bold text-white font-['Poppins']">{name}</h2>
           <span className="mt-1 px-3 py-1 bg-[#D4AF37]/20 text-[#D4AF37] text-xs font-bold uppercase tracking-wider rounded-full border border-[#D4AF37]/30">

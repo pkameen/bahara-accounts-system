@@ -8,26 +8,47 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'favicon.png', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
+      includeAssets: [
+        'favicon.ico',
+        'favicon.png',
+        'apple-touch-icon.png',
+        'pwa-192x192.png',
+        'pwa-192x192-maskable.png',
+        'pwa-512x512.png',
+        'pwa-512x512-maskable.png'
+      ],
       manifest: {
-        name: 'Bahara International',
+        id: '/',
+        name: 'Bahara International Accounts System',
         short_name: 'Bahara',
         description: 'Bahara International Accounts System',
         theme_color: '#111111',
         background_color: '#111111',
         display: 'standalone',
-        orientation: 'portrait-primary',
+        orientation: 'portrait',
         start_url: '/',
+        scope: '/',
+        lang: 'en',
+        categories: ['business', 'finance', 'utilities'],
+        prefer_related_applications: false,
         icons: [
           {
             src: 'pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: 'pwa-192x192-maskable.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'maskable'
           },
           {
             src: 'pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
           },
           {
             src: 'pwa-512x512-maskable.png',
@@ -60,4 +81,3 @@ export default defineConfig({
     })
   ],
 })
-

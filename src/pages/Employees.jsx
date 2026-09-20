@@ -18,7 +18,10 @@ import {
   FiMail,
   FiPhone,
   FiUser,
-  FiPackage
+  FiPackage,
+  FiCamera,
+  FiUpload,
+  FiTrash2
 } from "react-icons/fi";
 import { calculateTopSalesEmployees } from "../utils/calculations";
 
@@ -42,7 +45,8 @@ export default function Employees() {
     email: "",
     password: "",
     confirmPassword: "",
-    status: "active"
+    status: "active",
+    photoURL: ""
   });
   const [addLoading, setAddLoading] = useState(false);
 
@@ -52,11 +56,37 @@ export default function Employees() {
     name: "",
     userId: "",
     phone: "",
-    status: "active"
+    status: "active",
+    photoURL: ""
   });
   const [editLoading, setEditLoading] = useState(false);
 
   const [resetLoading, setResetLoading] = useState(false);
+
+  // File Upload Handler (Data URL with validation)
+  const handlePhotoSelect = (e, callback) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    if (!validTypes.includes(file.type.toLowerCase())) {
+      toast.error("Please upload a valid image file (JPG, PNG, or WEBP)");
+      return;
+    }
+
+    const maxSize = 5 * 1024 * 1024; // 5MB limit
+    if (file.size > maxSize) {
+      toast.error("Image file size must be less than 5MB");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      callback(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
 
   // Fetch Data from Firebase
   useEffect(() => {
@@ -183,6 +213,7 @@ export default function Employees() {
         password: addForm.password,
         role: "employee",
         status: addForm.status,
+        photoURL: addForm.photoURL || "",
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
@@ -194,7 +225,8 @@ export default function Employees() {
         email: emailToUse,
         password: addForm.password,
         role: "employee",
-        name: addForm.name.trim()
+        name: addForm.name.trim(),
+        photoURL: addForm.photoURL || ""
       });
 
       toast.success("Employee Added Successfully!", { style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }});
@@ -206,7 +238,8 @@ export default function Employees() {
         email: "",
         password: "",
         confirmPassword: "",
-        status: "active"
+        status: "active",
+        photoURL: ""
       });
     } catch (error) {
       console.error(error);
@@ -234,8 +267,16 @@ export default function Employees() {
         name: editForm.name.trim(),
         phone: editForm.phone.trim(),
         status: editForm.status,
+        photoURL: editForm.photoURL || "",
         updatedAt: Date.now()
       });
+
+      if (editForm.userId) {
+        await update(ref(db, `users_by_id/${editForm.userId}`), {
+          name: editForm.name.trim(),
+          photoURL: editForm.photoURL || ""
+        });
+      }
 
       toast.success("Employee profile updated!");
       setIsEditModalOpen(false);
@@ -294,10 +335,12 @@ export default function Employees() {
       name: emp.name || "",
       userId: emp.userId || "",
       phone: emp.phone || "",
-      status: emp.status || "active"
+      status: emp.status || "active",
+      photoURL: emp.photoURL || ""
     });
     setIsEditModalOpen(true);
   };
+
 
   const openView = (emp) => {
     setSelectedEmployee(emp);
@@ -358,15 +401,24 @@ export default function Employees() {
                   <tr key={emp.uid} className="hover:bg-gray-50/50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-[#111] text-[#D4AF37] font-bold flex items-center justify-center shrink-0">
-                          {emp.name?.charAt(0).toUpperCase() || "E"}
-                        </div>
+                        {emp.photoURL ? (
+                          <img
+                            src={emp.photoURL}
+                            alt={emp.name}
+                            className="w-10 h-10 rounded-full object-cover border border-[#D4AF37]/50 shadow-sm shrink-0"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-[#111] text-[#D4AF37] font-bold flex items-center justify-center shrink-0">
+                            {emp.name?.charAt(0).toUpperCase() || "E"}
+                          </div>
+                        )}
                         <div>
                           <p className="font-bold text-[#111]">{emp.name}</p>
                           <p className="text-xs text-gray-400 font-normal">{emp.email || "No Email"}</p>
                         </div>
                       </div>
                     </td>
+
                     <td className="py-4 px-6 font-bold text-gray-800">
                       <span className="bg-gray-100 px-2.5 py-1 rounded-lg text-xs font-mono">{emp.userId || emp.name?.toLowerCase().replace(/\s+/g, '')}</span>
                     </td>
@@ -422,14 +474,23 @@ export default function Employees() {
               <div key={emp.uid} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-[#111] text-[#D4AF37] font-bold flex items-center justify-center">
-                      {emp.name?.charAt(0).toUpperCase() || "E"}
-                    </div>
+                    {emp.photoURL ? (
+                      <img
+                        src={emp.photoURL}
+                        alt={emp.name}
+                        className="w-10 h-10 rounded-full object-cover border border-[#D4AF37]/50 shadow-sm shrink-0"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-[#111] text-[#D4AF37] font-bold flex items-center justify-center shrink-0">
+                        {emp.name?.charAt(0).toUpperCase() || "E"}
+                      </div>
+                    )}
                     <div>
                       <h4 className="font-bold text-[#111]">{emp.name}</h4>
                       <p className="text-xs text-gray-400">User ID: <span className="font-mono text-gray-700">{emp.userId || emp.name?.toLowerCase()}</span></p>
                     </div>
                   </div>
+
                   <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${emp.status === "active" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
                     {emp.status === "active" ? "Active" : "Inactive"}
                   </span>
@@ -485,6 +546,52 @@ export default function Employees() {
               <p className="text-xs text-gray-400 font-medium mb-6">Create login credentials and profile for a new salesman</p>
 
               <form onSubmit={handleAddEmployee} className="space-y-4">
+                {/* Employee Photo Upload (Optional) */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
+                    Employee Photo (Optional)
+                  </label>
+                  <div className="flex items-center gap-4 bg-gray-50 p-3.5 rounded-2xl border border-gray-200">
+                    <div className="relative w-16 h-16 rounded-2xl bg-white border border-gray-200 flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
+                      {addForm.photoURL ? (
+                        <img
+                          src={addForm.photoURL}
+                          alt="Employee Preview"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-gray-400 gap-0.5">
+                          <FiCamera className="text-xl" />
+                          <span className="text-[9px] font-bold uppercase tracking-wider">Photo</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 flex-1">
+                      <label className="cursor-pointer inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#111] text-[#D4AF37] hover:bg-black rounded-xl text-xs font-bold transition-all shadow-sm w-fit">
+                        <FiUpload /> {addForm.photoURL ? "Change Photo" : "Upload Photo"}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          onChange={(e) => handlePhotoSelect(e, (dataUrl) => setAddForm(prev => ({ ...prev, photoURL: dataUrl })))}
+                          className="hidden"
+                        />
+                      </label>
+                      {addForm.photoURL ? (
+                        <button
+                          type="button"
+                          onClick={() => setAddForm(prev => ({ ...prev, photoURL: "" }))}
+                          className="text-xs font-semibold text-red-500 hover:text-red-600 text-left cursor-pointer flex items-center gap-1"
+                        >
+                          <FiTrash2 /> Remove Photo
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-gray-400 font-medium">JPG, PNG, WEBP up to 5MB</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Employee Name *</label>
                   <div className="relative flex items-center">
@@ -499,6 +606,7 @@ export default function Employees() {
                     />
                   </div>
                 </div>
+
 
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">User ID * (For Login)</label>
@@ -613,6 +721,52 @@ export default function Employees() {
               <p className="text-xs text-gray-400 font-medium mb-6">Update profile details</p>
 
               <form onSubmit={handleEditEmployee} className="space-y-4">
+                {/* Employee Photo Upload (Optional) */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
+                    Employee Photo (Optional)
+                  </label>
+                  <div className="flex items-center gap-4 bg-gray-50 p-3.5 rounded-2xl border border-gray-200">
+                    <div className="relative w-16 h-16 rounded-2xl bg-white border border-gray-200 flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
+                      {editForm.photoURL ? (
+                        <img
+                          src={editForm.photoURL}
+                          alt="Employee Preview"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-gray-400 gap-0.5">
+                          <FiCamera className="text-xl" />
+                          <span className="text-[9px] font-bold uppercase tracking-wider">Photo</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 flex-1">
+                      <label className="cursor-pointer inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#111] text-[#D4AF37] hover:bg-black rounded-xl text-xs font-bold transition-all shadow-sm w-fit">
+                        <FiUpload /> {editForm.photoURL ? "Change Photo" : "Upload Photo"}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          onChange={(e) => handlePhotoSelect(e, (dataUrl) => setEditForm(prev => ({ ...prev, photoURL: dataUrl })))}
+                          className="hidden"
+                        />
+                      </label>
+                      {editForm.photoURL ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditForm(prev => ({ ...prev, photoURL: "" }))}
+                          className="text-xs font-semibold text-red-500 hover:text-red-600 text-left cursor-pointer flex items-center gap-1"
+                        >
+                          <FiTrash2 /> Remove Photo
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-gray-400 font-medium">JPG, PNG, WEBP up to 5MB</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Employee Name</label>
                   <input
@@ -623,6 +777,7 @@ export default function Employees() {
                     className="w-full bg-gray-50 border border-gray-200 focus:bg-white focus:border-[#D4AF37] rounded-xl py-3 px-4 text-sm font-medium outline-none transition-all"
                   />
                 </div>
+
 
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">User ID</label>
@@ -681,9 +836,17 @@ export default function Employees() {
               </button>
 
               <div className="flex items-center gap-4 mb-6">
-                <div className="w-16 h-16 rounded-2xl bg-[#111] text-[#D4AF37] font-bold text-2xl flex items-center justify-center shadow-lg">
-                  {selectedEmployee.name?.charAt(0).toUpperCase() || "E"}
-                </div>
+                {selectedEmployee.photoURL ? (
+                  <img
+                    src={selectedEmployee.photoURL}
+                    alt={selectedEmployee.name}
+                    className="w-16 h-16 rounded-2xl object-cover border-2 border-[#D4AF37] shadow-lg shrink-0"
+                  />
+                ) : (
+                  <div className="w-16 h-16 rounded-2xl bg-[#111] text-[#D4AF37] font-bold text-2xl flex items-center justify-center shadow-lg shrink-0">
+                    {selectedEmployee.name?.charAt(0).toUpperCase() || "E"}
+                  </div>
+                )}
                 <div>
                   <h2 className="text-2xl font-bold text-[#111] font-['Poppins']">{selectedEmployee.name}</h2>
                   <p className="text-xs text-gray-400 font-medium">User ID: <span className="font-mono text-gray-700 font-bold">{selectedEmployee.userId || selectedEmployee.name?.toLowerCase()}</span> • {selectedEmployee.phone}</p>
@@ -692,6 +855,7 @@ export default function Employees() {
                   </span>
                 </div>
               </div>
+
 
               {/* KPI Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">

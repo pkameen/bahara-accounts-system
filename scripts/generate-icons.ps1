@@ -47,10 +47,12 @@ function Create-PwaIcon {
 }
 
 Create-PwaIcon -Width 192 -Height 192 -OutName "pwa-192x192.png"
+Create-PwaIcon -Width 192 -Height 192 -OutName "pwa-192x192-maskable.png" -Maskable $true
 Create-PwaIcon -Width 512 -Height 512 -OutName "pwa-512x512.png"
 Create-PwaIcon -Width 512 -Height 512 -OutName "pwa-512x512-maskable.png" -Maskable $true
 Create-PwaIcon -Width 180 -Height 180 -OutName "apple-touch-icon.png"
 Create-PwaIcon -Width 64 -Height 64 -OutName "favicon.png"
 Create-PwaIcon -Width 32 -Height 32 -OutName "favicon.ico"
+
 
 $origImg.Dispose()

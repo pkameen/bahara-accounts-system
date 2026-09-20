@@ -68,15 +68,24 @@ export default function Layout({ children }) {
                 onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
                 className="flex items-center gap-3 cursor-pointer group select-none"
               >
-                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#111] text-[#D4AF37] flex items-center justify-center font-bold text-lg shadow-lg group-hover:scale-105 transition-transform">
-                  {userName.charAt(0).toUpperCase()}
-                </div>
+                {userProfile?.photoURL ? (
+                  <img
+                    src={userProfile.photoURL}
+                    alt={userName}
+                    className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border border-[#D4AF37]/50 shadow-lg group-hover:scale-105 transition-transform"
+                  />
+                ) : (
+                  <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#111] text-[#D4AF37] flex items-center justify-center font-bold text-lg shadow-lg group-hover:scale-105 transition-transform">
+                    {userName.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div className="hidden lg:block">
                   <p className="text-sm font-bold text-[#111] leading-none">{userName}</p>
                   <p className="text-xs text-[#D4AF37] mt-1 font-semibold uppercase tracking-wider">{roleLabel}</p>
                 </div>
                 <FiChevronDown className="hidden lg:block text-gray-400 group-hover:text-[#111] transition-colors" />
               </div>
+
 
               {/* Profile Dropdown Menu */}
               {isProfileMenuOpen && (

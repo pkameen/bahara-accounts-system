@@ -2,7 +2,6 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 
-
 const PwaContext = createContext();
 
 export function PwaProvider({ children }) {
@@ -16,10 +15,10 @@ export function PwaProvider({ children }) {
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r) {
-      console.log("SW Registered:", r);
+      console.log("PWA SW Registered:", r);
     },
     onRegisterError(error) {
-      console.error("SW Registration Error:", error);
+      console.error("PWA SW Registration Error:", error);
     },
   });
 
@@ -31,12 +30,11 @@ export function PwaProvider({ children }) {
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
-    // Standalone mode check
+    // Standard W3C Standalone mode check
     const checkStandalone = () => {
       const isStandaloneMode =
         window.matchMedia("(display-mode: standalone)").matches ||
-        window.navigator.standalone ||
-        document.referrer.includes("android-app://");
+        window.navigator.standalone === true;
       setIsStandalone(!!isStandaloneMode);
     };
 
@@ -47,19 +45,20 @@ export function PwaProvider({ children }) {
       mediaQuery.addEventListener("change", handleMediaChange);
     }
 
-    // PWA Install Prompt Listener
+    // Standard PWA Install Prompt Listener
     const handleBeforeInstallPrompt = (e) => {
+      // Prevent browser default mini-infobar and save prompt
       e.preventDefault();
       setDeferredPrompt(e);
     };
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
 
-    // Clear prompt if appinstalled
+    // Clear prompt if PWA installed
     const handleAppInstalled = () => {
       setDeferredPrompt(null);
       setIsStandalone(true);
-      console.log("Bahara PWA installed successfully");
+      console.log("Bahara International PWA installed successfully");
     };
 
     window.addEventListener("appinstalled", handleAppInstalled);
@@ -79,7 +78,7 @@ export function PwaProvider({ children }) {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    console.log(`User response to install prompt: ${outcome}`);
+    console.log(`User response to PWA install prompt: ${outcome}`);
     setDeferredPrompt(null);
   };
 
