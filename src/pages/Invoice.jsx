@@ -5,7 +5,7 @@ import { jsPDF } from "jspdf";
 import { db } from "../firebase";
 import { ref, onValue, push, update } from "firebase/database";
 import toast, { Toaster } from "react-hot-toast";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
 import {
   FiDownload,
@@ -17,7 +17,11 @@ import {
   FiLoader,
   FiShare2,
   FiClock,
-  FiAlertTriangle
+  FiAlertTriangle,
+  FiSend,
+  FiX,
+  FiCheckCircle,
+  FiMessageSquare
 } from "react-icons/fi";
 import logoIcon from '../assets/bahara.logo.jpg';  
 
@@ -137,6 +141,20 @@ const ProductSelector = ({ selectedProductId, selectedProductName, onSelectProdu
 };
 
 
+// Helper for E.164 phone formatting
+const formatPhoneNumberE164 = (phone) => {
+  if (!phone) return "";
+  let clean = phone.replace(/[^\d+]/g, "");
+  if (!clean.startsWith("+")) {
+    if (clean.length === 10) {
+      clean = "+91" + clean;
+    } else {
+      clean = "+" + clean;
+    }
+  }
+  return clean;
+};
+
 const Invoice = () => {
   const invoiceRef = useRef();
   const location = useLocation();
@@ -160,6 +178,9 @@ const Invoice = () => {
   const [invoiceNumber, setInvoiceNumber] = useState("BHR-100");
   const [loading, setLoading] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  const [whatsappLoading, setWhatsappLoading] = useState(false);
+  const [whatsappStatus, setWhatsappStatus] = useState("idle"); // idle | sending | success | error
   const [paymentStatus, setPaymentStatus] = useState("paid");
   const [invoiceDate, setInvoiceDate] = useState(() => {
     const d = new Date();
@@ -559,6 +580,101 @@ const Invoice = () => {
     }
   };
 
+  // WhatsApp Confirmation & Sending
+  const openWhatsAppConfirmation = () => {
+    if (!customer.name.trim()) {
+      toast.error("Please enter Customer Name first.");
+      return;
+    }
+    if (!customer.phone.trim()) {
+      toast.error("Please enter Customer Phone Number first.");
+      return;
+    }
+    setWhatsappStatus("idle");
+    setIsWhatsAppModalOpen(true);
+  };
+
+  const executeSendWhatsApp = async () => {
+    setWhatsappLoading(true);
+    setWhatsappStatus("sending");
+    try {
+      // 1. Generate PDF
+      const pdf = await generateInvoicePdf();
+      const pdfBase64 = pdf.output("datauristring");
+
+      // 2. Obtain Auth Token if signed in
+      let idToken = "";
+      if (currentUser && typeof currentUser.getIdToken === "function") {
+        try {
+          idToken = await currentUser.getIdToken();
+        } catch (tokenErr) {
+          console.warn("Could not retrieve ID token:", tokenErr);
+        }
+      }
+
+      // 3. Post to Netlify serverless function
+      const response = await fetch("/.netlify/functions/send-invoice-whatsapp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {})
+        },
+        body: JSON.stringify({
+          invoiceId: editId || null,
+          invoiceNumber: invoiceNumber || "BHR-100",
+          customerName: customer.name,
+          customerPhone: customer.phone,
+          pdfBase64: pdfBase64
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        if (data.code === "MISSING_CREDENTIALS") {
+          toast.error("WhatsApp API credentials not configured on Netlify server yet. Please add WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID in Netlify environment settings.", {
+            duration: 6000,
+            style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
+          });
+        } else {
+          toast.error(data.error || "Failed to send invoice via WhatsApp API.");
+        }
+        setWhatsappStatus("error");
+        return;
+      }
+
+      // 4. Record WhatsApp delivery metadata in DB if editing existing invoice
+      if (editId) {
+        try {
+          await update(ref(db, `invoices/${editId}`), {
+            whatsappStatus: "sent",
+            whatsappSentAt: Date.now(),
+            whatsappSentTo: data.recipient || formatPhoneNumberE164(customer.phone),
+            whatsappMessageId: data.messageId || ""
+          });
+        } catch (dbErr) {
+          console.warn("Failed to write whatsapp status to RTDB:", dbErr);
+        }
+      }
+
+      setWhatsappStatus("success");
+      toast.success(`Invoice ${invoiceNumber} sent successfully to ${customer.name}'s WhatsApp!`, {
+        duration: 5000,
+        style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
+      });
+      setTimeout(() => {
+        setIsWhatsAppModalOpen(false);
+        setWhatsappStatus("idle");
+      }, 1500);
+    } catch (error) {
+      console.error("WhatsApp Send Exception:", error);
+      toast.error(error.message || "Failed to send invoice via WhatsApp API.");
+      setWhatsappStatus("error");
+    } finally {
+      setWhatsappLoading(false);
+    }
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto pb-10 font-['Inter']">
       <Toaster />
@@ -711,15 +827,23 @@ const Invoice = () => {
           </motion.div>
           
           {/* Actions */}
-          <motion.div variants={itemVariants} className="bg-[#111] p-6 rounded-[30px] premium-shadow flex flex-col sm:flex-row gap-4 relative overflow-hidden">
+          <motion.div variants={itemVariants} className="bg-[#111] p-6 rounded-[30px] premium-shadow flex flex-col sm:flex-row gap-4 relative overflow-hidden flex-wrap">
             <div className="absolute -top-20 -right-20 w-40 h-40 bg-[#D4AF37] blur-[70px] opacity-20 rounded-full"></div>
-            <button onClick={handleSaveInvoice} disabled={loading} className="flex-1 bg-[#D4AF37] text-[#111] px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-yellow-400 transition-all shadow-[0_10px_30px_-10px_rgba(212,175,55,0.4)] disabled:opacity-70 z-10 text-lg tracking-wide cursor-pointer">
+            <button onClick={handleSaveInvoice} disabled={loading} className="flex-1 min-w-[200px] bg-[#D4AF37] text-[#111] px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-yellow-400 transition-all shadow-[0_10px_30px_-10px_rgba(212,175,55,0.4)] disabled:opacity-70 z-10 text-lg tracking-wide cursor-pointer">
               {loading ? <FiLoader className="animate-spin text-xl"/> : <><FiSave className="text-xl"/> {editId ? "Update & Save Invoice" : "Generate & Save Invoice"}</>}
             </button>
-          <button onClick={handleShare} disabled={isSharing} className="bg-white/10 border border-white/5 text-white hover:bg-[#D4AF37] hover:text-[#111] hover:border-[#D4AF37] px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all z-10 disabled:opacity-70 cursor-pointer">
-            {isSharing ? <FiLoader className="animate-spin text-xl"/> : <><FiShare2 className="text-xl"/> Share</>}
+            <button
+              type="button"
+              onClick={openWhatsAppConfirmation}
+              disabled={whatsappLoading}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all z-10 shadow-lg disabled:opacity-70 cursor-pointer"
+            >
+              {whatsappLoading ? <FiLoader className="animate-spin text-xl"/> : <><FiSend className="text-xl"/> Send via WhatsApp</>}
             </button>
-          <button onClick={downloadPDF} className="bg-white/10 border border-white/5 text-white hover:bg-[#D4AF37] hover:text-[#111] hover:border-[#D4AF37] px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all z-10 cursor-pointer">
+            <button onClick={handleShare} disabled={isSharing} className="bg-white/10 border border-white/5 text-white hover:bg-[#D4AF37] hover:text-[#111] hover:border-[#D4AF37] px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all z-10 disabled:opacity-70 cursor-pointer">
+              {isSharing ? <FiLoader className="animate-spin text-xl"/> : <><FiShare2 className="text-xl"/> Share</>}
+            </button>
+            <button onClick={downloadPDF} className="bg-white/10 border border-white/5 text-white hover:bg-[#D4AF37] hover:text-[#111] hover:border-[#D4AF37] px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all z-10 cursor-pointer">
               <FiDownload className="text-xl"/> PDF
             </button>
           </motion.div>
@@ -812,6 +936,74 @@ const Invoice = () => {
           </div>
         </motion.div>
       </div>
+
+      {/* WHATSAPP CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {isWhatsAppModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-[32px] p-7 w-full max-w-md shadow-2xl relative">
+              <button onClick={() => setIsWhatsAppModalOpen(false)} disabled={whatsappLoading} className="absolute top-6 right-6 text-gray-400 hover:text-[#111] text-xl cursor-pointer">
+                <FiX />
+              </button>
+
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-2xl shadow-sm shrink-0">
+                  <FiSend />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-[#111] font-['Poppins']">Send via WhatsApp</h3>
+                  <p className="text-xs text-gray-400 font-medium">WhatsApp Business Cloud API</p>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 mb-6 space-y-2 text-sm">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider">Invoice</span>
+                  <span className="font-bold text-[#111] bg-white px-2.5 py-1 rounded-lg border border-gray-200">{invoiceNumber}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider">Customer</span>
+                  <span className="font-bold text-[#111]">{customer.name || "N/A"}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-bold text-gray-400 uppercase tracking-wider">Recipient Phone</span>
+                  <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">{formatPhoneNumberE164(customer.phone)}</span>
+                </div>
+              </div>
+
+              {whatsappStatus === "success" ? (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-center gap-2 text-emerald-800 font-bold text-sm mb-4">
+                  <FiCheckCircle className="text-xl text-emerald-600" />
+                  <span>Invoice sent successfully!</span>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500 mb-6 leading-relaxed">
+                  Send official PDF document for invoice <strong className="text-[#111]">{invoiceNumber}</strong> directly to <strong className="text-emerald-700">{formatPhoneNumberE164(customer.phone)}</strong> via Meta WhatsApp Business Cloud API?
+                </p>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsWhatsAppModalOpen(false)}
+                  disabled={whatsappLoading}
+                  className="flex-1 bg-gray-100 text-gray-600 py-3.5 rounded-xl font-bold hover:bg-gray-200 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={executeSendWhatsApp}
+                  disabled={whatsappLoading || whatsappStatus === "success"}
+                  className="flex-1 bg-emerald-600 text-white py-3.5 rounded-xl font-bold hover:bg-emerald-500 transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {whatsappLoading ? <><FiLoader className="animate-spin text-lg"/> Sending...</> : <><FiSend /> Send</>}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

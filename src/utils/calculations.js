@@ -125,10 +125,15 @@ export const calculateTopSalesEmployees = (invoices = [], expenses = [], employe
 
   // Initialize from employee list
   employeesList.forEach(emp => {
+    const photo = emp.photoURL || emp.photoUrl || emp.photo || emp.profilePhoto || emp.imageUrl || emp.avatarUrl || "";
     empMap[emp.uid] = {
+      ...emp,
       uid: emp.uid,
       name: emp.name,
       phone: emp.phone,
+      email: emp.email || "",
+      userId: emp.userId || "",
+      photoURL: photo,
       status: emp.status || "active",
       role: emp.role || "employee",
       totalSales: 0,

@@ -28,6 +28,35 @@ import {
 import { calculateTopSalesEmployees } from "../utils/calculations";
 import { useAuth } from "../context/AuthContext";
 
+// Helper component for rendering employee photos with initial fallback and broken image handling
+function EmployeeAvatar({ emp, className = "w-10 h-10", textClassName = "text-sm", roundedClassName = "rounded-full" }) {
+  const [imgError, setImgError] = useState(false);
+
+  const photo = emp?.photoURL || emp?.photoUrl || emp?.photo || emp?.profilePhoto || emp?.imageUrl || emp?.avatarUrl;
+  const initial = emp?.name?.charAt(0).toUpperCase() || "E";
+
+  useEffect(() => {
+    setImgError(false);
+  }, [photo]);
+
+  if (photo && !imgError) {
+    return (
+      <img
+        src={photo}
+        alt={emp?.name ? `${emp.name}'s photo` : "Employee photo"}
+        onError={() => setImgError(true)}
+        className={`${className} ${roundedClassName} object-cover border border-[#D4AF37]/50 shadow-sm shrink-0`}
+      />
+    );
+  }
+
+  return (
+    <div className={`${className} ${roundedClassName} bg-[#111] text-[#D4AF37] font-bold flex items-center justify-center shrink-0 ${textClassName}`}>
+      {initial}
+    </div>
+  );
+}
+
 export default function Employees() {
   const { role, isAdmin } = useAuth();
   const [employees, setEmployees] = useState([]);
@@ -518,17 +547,7 @@ export default function Employees() {
                   <tr key={emp.uid} className="hover:bg-gray-50/50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
-                        {emp.photoURL ? (
-                          <img
-                            src={emp.photoURL}
-                            alt={emp.name}
-                            className="w-10 h-10 rounded-full object-cover border border-[#D4AF37]/50 shadow-sm shrink-0"
-                          />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-[#111] text-[#D4AF37] font-bold flex items-center justify-center shrink-0">
-                            {emp.name?.charAt(0).toUpperCase() || "E"}
-                          </div>
-                        )}
+                        <EmployeeAvatar emp={emp} className="w-10 h-10" textClassName="text-sm" />
                         <div>
                           <p className="font-bold text-[#111]">{emp.name}</p>
                           <p className="text-xs text-gray-400 font-normal">{emp.email || "No Email"}</p>
@@ -610,17 +629,7 @@ export default function Employees() {
               <div key={emp.uid} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    {emp.photoURL ? (
-                      <img
-                        src={emp.photoURL}
-                        alt={emp.name}
-                        className="w-10 h-10 rounded-full object-cover border border-[#D4AF37]/50 shadow-sm shrink-0"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-[#111] text-[#D4AF37] font-bold flex items-center justify-center shrink-0">
-                        {emp.name?.charAt(0).toUpperCase() || "E"}
-                      </div>
-                    )}
+                    <EmployeeAvatar emp={emp} className="w-10 h-10" textClassName="text-sm" />
                     <div>
                       <h4 className="font-bold text-[#111]">{emp.name}</h4>
                       <p className="text-xs text-gray-400">User ID: <span className="font-mono text-gray-700">{emp.userId || emp.name?.toLowerCase()}</span></p>
@@ -1125,17 +1134,7 @@ export default function Employees() {
               </button>
 
               <div className="flex items-center gap-4 mb-6">
-                {selectedEmployee.photoURL ? (
-                  <img
-                    src={selectedEmployee.photoURL}
-                    alt={selectedEmployee.name}
-                    className="w-16 h-16 rounded-2xl object-cover border-2 border-[#D4AF37] shadow-lg shrink-0"
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-2xl bg-[#111] text-[#D4AF37] font-bold text-2xl flex items-center justify-center shadow-lg shrink-0">
-                    {selectedEmployee.name?.charAt(0).toUpperCase() || "E"}
-                  </div>
-                )}
+                <EmployeeAvatar emp={selectedEmployee} className="w-16 h-16" textClassName="text-2xl" roundedClassName="rounded-2xl" />
                 <div>
                   <h2 className="text-2xl font-bold text-[#111] font-['Poppins']">{selectedEmployee.name}</h2>
                   <p className="text-xs text-gray-400 font-medium">User ID: <span className="font-mono text-gray-700 font-bold">{selectedEmployee.userId || selectedEmployee.name?.toLowerCase()}</span> • {selectedEmployee.phone}</p>
