@@ -27,35 +27,7 @@ import {
 } from "react-icons/fi";
 import { calculateTopSalesEmployees } from "../utils/calculations";
 import { useAuth } from "../context/AuthContext";
-
-// Helper component for rendering employee photos with initial fallback and broken image handling
-function EmployeeAvatar({ emp, className = "w-10 h-10", textClassName = "text-sm", roundedClassName = "rounded-full" }) {
-  const [imgError, setImgError] = useState(false);
-
-  const photo = emp?.photoURL || emp?.photoUrl || emp?.photo || emp?.profilePhoto || emp?.imageUrl || emp?.avatarUrl;
-  const initial = emp?.name?.charAt(0).toUpperCase() || "E";
-
-  useEffect(() => {
-    setImgError(false);
-  }, [photo]);
-
-  if (photo && !imgError) {
-    return (
-      <img
-        src={photo}
-        alt={emp?.name ? `${emp.name}'s photo` : "Employee photo"}
-        onError={() => setImgError(true)}
-        className={`${className} ${roundedClassName} object-cover border border-[#D4AF37]/50 shadow-sm shrink-0`}
-      />
-    );
-  }
-
-  return (
-    <div className={`${className} ${roundedClassName} bg-[#111] text-[#D4AF37] font-bold flex items-center justify-center shrink-0 ${textClassName}`}>
-      {initial}
-    </div>
-  );
-}
+import EmployeeAvatar from "../components/EmployeeAvatar";
 
 export default function Employees() {
   const { role, isAdmin } = useAuth();

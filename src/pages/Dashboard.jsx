@@ -21,6 +21,7 @@ import SalesCard from "../components/SalesCard";
 import ReportTable from "../components/ReportTable";
 import DateFilter from "../components/DateFilter";
 import BySalesmanChart from "../components/BySalesmanChart";
+import EmployeeAvatar from "../components/EmployeeAvatar";
 import { calculateTopSalesEmployees, filterItemsByDate } from "../utils/calculations";
 
 
@@ -338,9 +339,7 @@ const Dashboard = () => {
               topEmployees.map((emp) => (
                 <div key={emp.uid} className="flex items-center justify-between p-3 rounded-2xl bg-gray-50/70 border border-gray-100 hover:border-[#D4AF37]/30 transition-colors">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-[#111] text-[#D4AF37] font-bold text-sm flex items-center justify-center shrink-0">
-                      {emp.name?.charAt(0).toUpperCase() || "E"}
-                    </div>
+                    <EmployeeAvatar emp={emp} className="w-9 h-9" textClassName="text-xs" />
                     <div>
                       <h4 className="font-bold text-[#111] text-sm">{emp.name}</h4>
                       <span className="text-[10px] text-gray-400 font-medium block">

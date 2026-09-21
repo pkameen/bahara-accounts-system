@@ -181,6 +181,7 @@ const Invoice = () => {
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [whatsappLoading, setWhatsappLoading] = useState(false);
   const [whatsappStatus, setWhatsappStatus] = useState("idle"); // idle | sending | success | error
+  const [whatsappErrorMessage, setWhatsappErrorMessage] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("paid");
   const [invoiceDate, setInvoiceDate] = useState(() => {
     const d = new Date();
@@ -506,7 +507,7 @@ const Invoice = () => {
     if (!element) {
       throw new Error("Invoice preview element not found");
     }
-    const canvas = await html2canvas(element, { scale: 3, useCORS: true });
+    const canvas = await html2canvas(element, { scale: 2, useCORS: true });
     const data = canvas.toDataURL("image/png");
     const pdf = new jsPDF("p", "mm", "a4");
     const pdfWidth = pdf.internal.pageSize.getWidth();
@@ -525,7 +526,7 @@ const Invoice = () => {
     return pdf;
   };
 
-  // Native Share & Fallback
+  // Progressive Web Share API & Fallback
   const handleShare = async () => {
     setIsSharing(true);
     try {
@@ -538,30 +539,43 @@ const Invoice = () => {
         lastModified: Date.now(),
       });
 
+      const isShareSupported = typeof navigator !== "undefined" && typeof navigator.share === "function";
       const canShareFiles =
-        typeof navigator !== "undefined" &&
-        !!navigator.share &&
-        !!navigator.canShare &&
+        isShareSupported &&
+        typeof navigator.canShare === "function" &&
         navigator.canShare({ files: [file] });
 
       if (canShareFiles) {
-        await navigator.share({
-          title: `Invoice ${invoiceNumber}`,
-          text: `Bahara International Invoice ${invoiceNumber}`,
-          files: [file],
-        });
+        try {
+          await navigator.share({
+            title: `Invoice ${invoiceNumber}`,
+            text: `Bahara International Invoice ${invoiceNumber}`,
+            files: [file],
+          });
+        } catch (shareErr) {
+          if (shareErr.name === "AbortError") {
+            // User cancelled/closed native share sheet - normal action, do not show error
+            return;
+          }
+          console.warn("Native share rejected, triggering download fallback:", shareErr);
+          pdf.save(pdfFilename);
+          toast("File sharing was rejected by device. Invoice PDF has been downloaded instead.", {
+            icon: 'ℹ️',
+            style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
+          });
+        }
       } else {
         // Fallback for browsers/devices that don't support file sharing
         pdf.save(pdfFilename);
-        toast("File sharing is not supported on this browser. The invoice PDF has been downloaded.", {
+        toast("File sharing is not supported on this browser. Invoice PDF has been downloaded.", {
           icon: 'ℹ️',
           style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
         });
       }
     } catch (error) {
-      if (error.name !== "AbortError" && error.name !== "NotAllowedError") {
+      if (error.name !== "AbortError") {
         console.error("Error sharing invoice:", error);
-        toast.error("Failed to share invoice");
+        toast.error("Failed to share invoice PDF");
       }
     } finally {
       setIsSharing(false);
@@ -591,12 +605,15 @@ const Invoice = () => {
       return;
     }
     setWhatsappStatus("idle");
+    setWhatsappErrorMessage("");
     setIsWhatsAppModalOpen(true);
   };
 
   const executeSendWhatsApp = async () => {
     setWhatsappLoading(true);
     setWhatsappStatus("sending");
+    setWhatsappErrorMessage("");
+
     try {
       // 1. Generate PDF
       const pdf = await generateInvoicePdf();
@@ -628,29 +645,69 @@ const Invoice = () => {
         })
       });
 
-      const data = await response.json();
+      // 4. Safe Response Reading & Content-Type Inspection
+      const contentType = response.headers.get("content-type") || "";
+      const rawText = await response.text();
+      let data = null;
 
-      if (!response.ok || !data.success) {
-        if (data.code === "MISSING_CREDENTIALS") {
-          toast.error("WhatsApp API credentials not configured on Netlify server yet. Please add WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID in Netlify environment settings.", {
-            duration: 6000,
-            style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
-          });
+      if (rawText && rawText.trim()) {
+        if (contentType.includes("application/json")) {
+          try {
+            data = JSON.parse(rawText);
+          } catch {
+            data = null;
+          }
         } else {
-          toast.error(data.error || "Failed to send invoice via WhatsApp API.");
+          try {
+            data = JSON.parse(rawText);
+          } catch {
+            data = null;
+          }
         }
+      }
+
+      if (!response.ok || !data?.success) {
+        let errorMsg = data?.error;
+        if (!errorMsg) {
+          if (response.status === 413) {
+            errorMsg = "Invoice PDF size is too large to process via WhatsApp.";
+          } else if (response.status === 503 && data?.code === "MISSING_CREDENTIALS") {
+            errorMsg = "WhatsApp API configuration is incomplete on server.";
+          } else {
+            errorMsg = `WhatsApp request failed (HTTP ${response.status})`;
+          }
+        }
+
         setWhatsappStatus("error");
+        setWhatsappErrorMessage(errorMsg);
+
+        if (editId) {
+          try {
+            await update(ref(db, `invoices/${editId}`), {
+              whatsappStatus: "failed",
+              whatsappSentAt: Date.now(),
+              whatsappSentTo: formatPhoneNumberE164(customer.phone),
+              whatsappError: errorMsg
+            });
+          } catch (dbErr) {
+            console.warn("Failed to record whatsapp failure status to RTDB:", dbErr);
+          }
+        }
+
+        toast.error(errorMsg);
         return;
       }
 
-      // 4. Record WhatsApp delivery metadata in DB if editing existing invoice
+      // 5. Record WhatsApp delivery metadata in DB if editing existing invoice
+      const targetPhone = data.sentTo || data.recipient || formatPhoneNumberE164(customer.phone);
       if (editId) {
         try {
           await update(ref(db, `invoices/${editId}`), {
             whatsappStatus: "sent",
             whatsappSentAt: Date.now(),
-            whatsappSentTo: data.recipient || formatPhoneNumberE164(customer.phone),
-            whatsappMessageId: data.messageId || ""
+            whatsappSentTo: targetPhone,
+            whatsappMessageId: data.messageId || "",
+            whatsappError: null
           });
         } catch (dbErr) {
           console.warn("Failed to write whatsapp status to RTDB:", dbErr);
@@ -658,18 +715,21 @@ const Invoice = () => {
       }
 
       setWhatsappStatus("success");
-      toast.success(`Invoice ${invoiceNumber} sent successfully to ${customer.name}'s WhatsApp!`, {
+      toast.success(`Invoice ${invoiceNumber} sent successfully to ${targetPhone}!`, {
         duration: 5000,
         style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
       });
       setTimeout(() => {
         setIsWhatsAppModalOpen(false);
         setWhatsappStatus("idle");
-      }, 1500);
+        setWhatsappErrorMessage("");
+      }, 2000);
     } catch (error) {
       console.error("WhatsApp Send Exception:", error);
-      toast.error(error.message || "Failed to send invoice via WhatsApp API.");
+      const fallbackErr = error.message || "Failed to send invoice via WhatsApp API.";
       setWhatsappStatus("error");
+      setWhatsappErrorMessage(fallbackErr);
+      toast.error(fallbackErr);
     } finally {
       setWhatsappLoading(false);
     }
@@ -972,9 +1032,17 @@ const Invoice = () => {
               </div>
 
               {whatsappStatus === "success" ? (
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-center gap-2 text-emerald-800 font-bold text-sm mb-4">
-                  <FiCheckCircle className="text-xl text-emerald-600" />
-                  <span>Invoice sent successfully!</span>
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-center gap-2 text-emerald-800 font-bold text-sm mb-6">
+                  <FiCheckCircle className="text-xl text-emerald-600 shrink-0" />
+                  <span>Invoice sent successfully to {formatPhoneNumberE164(customer.phone)}!</span>
+                </div>
+              ) : whatsappStatus === "error" ? (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start gap-2.5 text-red-700 font-medium text-xs mb-6">
+                  <FiAlertTriangle className="text-lg text-red-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-bold text-red-800">Delivery Failed</p>
+                    <p className="mt-0.5">{whatsappErrorMessage || "Unable to send invoice via WhatsApp API."}</p>
+                  </div>
                 </div>
               ) : (
                 <p className="text-xs text-gray-500 mb-6 leading-relaxed">
@@ -987,7 +1055,7 @@ const Invoice = () => {
                   type="button"
                   onClick={() => setIsWhatsAppModalOpen(false)}
                   disabled={whatsappLoading}
-                  className="flex-1 bg-gray-100 text-gray-600 py-3.5 rounded-xl font-bold hover:bg-gray-200 transition-colors cursor-pointer"
+                  className="flex-1 bg-gray-100 text-gray-600 py-3.5 rounded-xl font-bold hover:bg-gray-200 transition-colors cursor-pointer disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -997,7 +1065,15 @@ const Invoice = () => {
                   disabled={whatsappLoading || whatsappStatus === "success"}
                   className="flex-1 bg-emerald-600 text-white py-3.5 rounded-xl font-bold hover:bg-emerald-500 transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  {whatsappLoading ? <><FiLoader className="animate-spin text-lg"/> Sending...</> : <><FiSend /> Send</>}
+                  {whatsappLoading ? (
+                    <><FiLoader className="animate-spin text-lg"/> Sending...</>
+                  ) : whatsappStatus === "error" ? (
+                    <><FiSend /> Retry Send</>
+                  ) : whatsappStatus === "success" ? (
+                    <><FiCheckCircle /> Sent</>
+                  ) : (
+                    <><FiSend /> Send</>
+                  )}
                 </button>
               </div>
             </motion.div>

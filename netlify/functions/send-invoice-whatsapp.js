@@ -1,53 +1,78 @@
 // Netlify Serverless Function: Send Invoice via WhatsApp Business Cloud API
 // Path: netlify/functions/send-invoice-whatsapp.js
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json",
+};
+
 export async function handler(event, context) {
-  // CORS & Method check
+  // 1. Preflight CORS check
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-      },
-      body: "",
+      headers: corsHeaders,
+      body: JSON.stringify({ success: true, message: "CORS preflight OK" }),
     };
   }
 
+  // 2. HTTP Method check
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Method Not Allowed. Use POST." }),
+      headers: corsHeaders,
+      body: JSON.stringify({
+        success: false,
+        error: "Method Not Allowed. Use POST.",
+      }),
     };
   }
 
   try {
-    const body = JSON.parse(event.body || "{}");
-    const { invoiceNumber, customerName, customerPhone, pdfBase64 } = body;
-
-    // 1. Basic Field Validation
-    if (!customerPhone || !customerPhone.trim()) {
+    let body = {};
+    try {
+      body = JSON.parse(event.body || "{}");
+    } catch {
       return {
         statusCode: 400,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ error: "Customer phone number is required." }),
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: "Invalid JSON request payload.",
+        }),
+      };
+    }
+
+    const { invoiceNumber, customerName, customerPhone, pdfBase64 } = body;
+
+    // 3. Validation
+    if (!customerPhone || !String(customerPhone).trim()) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: "Customer WhatsApp number is missing or invalid.",
+        }),
       };
     }
 
     if (!pdfBase64) {
       return {
         statusCode: 400,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ error: "Invoice PDF document data is missing." }),
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: "Unable to generate or access the invoice PDF.",
+        }),
       };
     }
 
-    // 2. Safe E.164 Phone Normalization
-    let cleanPhone = customerPhone.replace(/[^\d+]/g, "");
+    // 4. Safe E.164 Phone Normalization
+    let cleanPhone = String(customerPhone).replace(/[^\d+]/g, "");
     if (!cleanPhone.startsWith("+")) {
-      // Default to India (+91) if 10 digits without country code
       if (cleanPhone.length === 10) {
         cleanPhone = "+91" + cleanPhone;
       } else {
@@ -56,26 +81,53 @@ export async function handler(event, context) {
     }
     const whatsappRecipientNumber = cleanPhone.replace("+", "");
 
-    // 3. Credentials Check
+    if (whatsappRecipientNumber.length < 7) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: "Customer WhatsApp number is missing or invalid.",
+        }),
+      };
+    }
+
+    // 5. Environment Variables Check
     const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     if (!accessToken || !phoneNumberId) {
       return {
         statusCode: 503,
-        headers: { "Content-Type": "application/json" },
+        headers: corsHeaders,
         body: JSON.stringify({
-          error: "WhatsApp Business API credentials are not configured on Netlify environment.",
+          success: false,
+          error: "WhatsApp API configuration is incomplete.",
           code: "MISSING_CREDENTIALS",
         }),
       };
     }
 
-    // 4. Convert Base64 PDF to Uint8Array Buffer
-    const base64Clean = pdfBase64.replace(/^data:application\/pdf;base64,/, "");
-    const pdfBuffer = Buffer.from(base64Clean, "base64");
+    // 6. Convert Base64 PDF to Buffer safely
+    let pdfBuffer;
+    try {
+      const base64Clean = pdfBase64.replace(/^data:application\/pdf;base64,/, "");
+      pdfBuffer = Buffer.from(base64Clean, "base64");
+      if (!pdfBuffer || pdfBuffer.length === 0) {
+        throw new Error("Empty PDF buffer");
+      }
+    } catch {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: "Unable to generate or access the invoice PDF.",
+        }),
+      };
+    }
 
-    // 5. Upload PDF to Meta WhatsApp Media API
+    // 7. Upload PDF to Meta WhatsApp Media API
     const formData = new FormData();
     formData.append("messaging_product", "whatsapp");
     formData.append("type", "application/pdf");
@@ -84,31 +136,53 @@ export async function handler(event, context) {
     const fileName = `Bahara_Invoice_${formattedInvNum}.pdf`;
     formData.append("file", pdfBlob, fileName);
 
-    const mediaUploadRes = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/media`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: formData,
-    });
+    let mediaUploadRes;
+    try {
+      mediaUploadRes = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/media`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+    } catch (netErr) {
+      console.error("Meta Media Upload Network Exception:", netErr?.message || netErr);
+      return {
+        statusCode: 504,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: "Unable to connect to WhatsApp Business API.",
+        }),
+      };
+    }
 
-    const mediaUploadData = await mediaUploadRes.json();
+    let mediaUploadData = {};
+    try {
+      mediaUploadData = await mediaUploadRes.json();
+    } catch {
+      mediaUploadData = {};
+    }
 
     if (!mediaUploadRes.ok || !mediaUploadData.id) {
-      console.error("Meta Media Upload Error:", mediaUploadData);
+      console.error("Meta Media Upload Error Status:", mediaUploadRes.status);
+      const safeDetails = mediaUploadData.error?.message
+        ? String(mediaUploadData.error.message).replace(accessToken, "[REDACTED]")
+        : "Failed to upload invoice document to Meta WhatsApp server.";
       return {
-        statusCode: mediaUploadRes.status || 500,
-        headers: { "Content-Type": "application/json" },
+        statusCode: mediaUploadRes.status || 502,
+        headers: corsHeaders,
         body: JSON.stringify({
-          error: mediaUploadData.error?.message || "Failed to upload invoice document to Meta WhatsApp server.",
-          details: mediaUploadData.error || null,
+          success: false,
+          error: "WhatsApp API rejected the request.",
+          details: safeDetails,
         }),
       };
     }
 
     const mediaId = mediaUploadData.id;
 
-    // 6. Send Document Message via Meta WhatsApp Cloud API
+    // 8. Send Document Message via Meta WhatsApp Cloud API
     const messagePayload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
@@ -121,25 +195,47 @@ export async function handler(event, context) {
       },
     };
 
-    const sendMessageRes = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(messagePayload),
-    });
+    let sendMessageRes;
+    try {
+      sendMessageRes = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(messagePayload),
+      });
+    } catch (netErr) {
+      console.error("Meta Send Message Network Exception:", netErr?.message || netErr);
+      return {
+        statusCode: 504,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: "Unable to connect to WhatsApp Business API.",
+        }),
+      };
+    }
 
-    const sendMessageData = await sendMessageRes.json();
+    let sendMessageData = {};
+    try {
+      sendMessageData = await sendMessageRes.json();
+    } catch {
+      sendMessageData = {};
+    }
 
     if (!sendMessageRes.ok || sendMessageData.error) {
-      console.error("Meta Send Message Error:", sendMessageData);
+      console.error("Meta Send Message Error Status:", sendMessageRes.status);
+      const safeDetails = sendMessageData.error?.message
+        ? String(sendMessageData.error.message).replace(accessToken, "[REDACTED]")
+        : "WhatsApp API rejected the message delivery.";
       return {
-        statusCode: sendMessageRes.status || 500,
-        headers: { "Content-Type": "application/json" },
+        statusCode: sendMessageRes.status || 502,
+        headers: corsHeaders,
         body: JSON.stringify({
-          error: sendMessageData.error?.message || "WhatsApp API rejected the message delivery.",
-          details: sendMessageData.error || null,
+          success: false,
+          error: "WhatsApp API rejected the request.",
+          details: safeDetails,
         }),
       };
     }
@@ -148,23 +244,24 @@ export async function handler(event, context) {
 
     return {
       statusCode: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
+      headers: corsHeaders,
       body: JSON.stringify({
         success: true,
+        message: "Invoice sent successfully",
         messageId: wamid,
+        sentTo: cleanPhone,
         recipient: cleanPhone,
-        message: `Invoice sent successfully to ${cleanPhone}`,
       }),
     };
   } catch (err) {
-    console.error("Serverless Function Exception:", err);
+    console.error("Serverless Function Internal Exception:", err?.message || err);
     return {
       statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: err.message || "An unexpected server error occurred." }),
+      headers: corsHeaders,
+      body: JSON.stringify({
+        success: false,
+        error: "Unable to send invoice via WhatsApp.",
+      }),
     };
   }
 }

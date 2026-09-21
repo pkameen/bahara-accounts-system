@@ -4,6 +4,8 @@ import { motion } from "framer-motion";
 import toast, { Toaster } from "react-hot-toast";
 import { FiMail, FiPhone, FiShield, FiKey, FiLock } from "react-icons/fi";
 
+import EmployeeAvatar from "../components/EmployeeAvatar";
+
 export default function Profile() {
   const { currentUser, userProfile, role, changePassword } = useAuth();
   const [newPassword, setNewPassword] = useState("");
@@ -59,17 +61,13 @@ export default function Profile() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="md:col-span-5 bg-[#111] text-white rounded-[32px] p-8 flex flex-col items-center text-center shadow-xl relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-[#D4AF37] blur-[70px] opacity-20 rounded-full" />
           
-          {userProfile?.photoURL ? (
-            <img
-              src={userProfile.photoURL}
-              alt={name}
-              className="w-24 h-24 rounded-3xl object-cover border-2 border-[#D4AF37] mb-4 shadow-xl"
-            />
-          ) : (
-            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-white/20 to-white/5 border border-[#D4AF37]/50 flex items-center justify-center text-[#D4AF37] font-bold text-4xl mb-4 shadow-xl">
-              {name.charAt(0).toUpperCase()}
-            </div>
-          )}
+          <EmployeeAvatar
+            emp={userProfile || { name, role }}
+            role={role}
+            className="w-24 h-24 mb-4 shadow-xl"
+            roundedClassName="rounded-3xl"
+            textClassName="text-4xl"
+          />
 
 
           <h2 className="text-2xl font-bold text-white font-['Poppins']">{name}</h2>

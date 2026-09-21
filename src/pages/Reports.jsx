@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { db } from "../firebase";
 import { ref, onValue, update } from "firebase/database";
+import EmployeeAvatar from "../components/EmployeeAvatar";
 import {
   isSameDay,
   isSameWeek,
@@ -512,9 +513,7 @@ const Reports = () => {
                     <tr key={emp.uid} className="hover:bg-gray-50/80 transition-colors">
                       <td className="p-4 sm:p-5 font-bold font-['Poppins']">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-[#111] text-[#D4AF37] font-bold text-xs flex items-center justify-center shrink-0">
-                            {emp.name?.charAt(0).toUpperCase() || "E"}
-                          </div>
+                          <EmployeeAvatar emp={emp} className="w-8 h-8" textClassName="text-xs" />
                           <div>
                             <span className="text-sm font-bold text-[#111]">{emp.name}</span>
                             <span className="text-[10px] text-gray-400 font-normal block capitalize">{emp.isAdmin ? "Admin" : "Employee"}</span>
