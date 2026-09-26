@@ -3,13 +3,13 @@ import { db } from "../firebase";
 import { ref, push, onValue } from "firebase/database";
 import { motion } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
-import { 
-  FiPackage, 
-  FiDollarSign, 
-  FiLayers, 
-  FiImage, 
-  FiAlignLeft, 
-  FiCheckCircle, 
+import {
+  FiPackage,
+  FiDollarSign,
+  FiLayers,
+  FiImage,
+  FiAlignLeft,
+  FiCheckCircle,
   FiStar,
   FiFolderPlus,
   FiAlertTriangle
@@ -82,7 +82,7 @@ const AddProduct = () => {
     if (
       !product.productName ||
       !product.category ||
-      !product.sellingPrice || 
+      !product.sellingPrice ||
       !product.stock
     ) {
       toast.error("Please fill all required fields");
@@ -141,7 +141,7 @@ const AddProduct = () => {
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white premium-shadow border border-gray-100 rounded-[30px] p-8 max-w-5xl">
         <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          
+
           {/* Left Column: Image Upload */}
           <div className="lg:col-span-4 space-y-4">
             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">Product Image</label>
@@ -154,15 +154,15 @@ const AddProduct = () => {
                   <span className="text-sm font-semibold">Upload Image</span>
                 </div>
               )}
-              <input 
-                type="file" 
+              <input
+                type="file"
                 accept="image/*"
                 onChange={handleImageUpload}
                 className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
               />
             </div>
             {product.image && (
-              <button type="button" onClick={() => setProduct({...product, image: ""})} className="text-xs font-bold text-red-500 hover:text-red-600 w-full text-center mt-2 cursor-pointer">
+              <button type="button" onClick={() => setProduct({ ...product, image: "" })} className="text-xs font-bold text-red-500 hover:text-red-600 w-full text-center mt-2 cursor-pointer">
                 Remove Image
               </button>
             )}
@@ -170,7 +170,7 @@ const AddProduct = () => {
 
           {/* Right Column: Form Fields */}
           <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-            
+
             {/* Product Name */}
             <div className="md:col-span-2 relative group/input">
               <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">Product Name *</label>
@@ -185,8 +185,8 @@ const AddProduct = () => {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">Category *</label>
                 {isAdmin && (
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     onClick={() => setIsAddCategoryModalOpen(true)}
                     className="text-[11px] font-bold text-[#D4AF37] hover:underline flex items-center gap-1 cursor-pointer"
                   >

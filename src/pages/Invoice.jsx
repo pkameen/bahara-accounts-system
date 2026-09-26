@@ -5,7 +5,7 @@ import { jsPDF } from "jspdf";
 import { db } from "../firebase";
 import { ref, onValue, push, update } from "firebase/database";
 import toast, { Toaster } from "react-hot-toast";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
 import {
   FiDownload,
@@ -15,15 +15,10 @@ import {
   FiMapPin,
   FiPackage,
   FiLoader,
-  FiShare2,
   FiClock,
-  FiAlertTriangle,
-  FiSend,
-  FiX,
-  FiCheckCircle,
-  FiMessageSquare
+  FiAlertTriangle
 } from "react-icons/fi";
-import logoIcon from '../assets/bahara.logo.jpg';  
+import logoIcon from '../assets/bahara.logo.jpg';
 
 const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.1 } } };
 const itemVariants = { hidden: { y: 20, opacity: 0 }, show: { y: 0, opacity: 1, transition: { type: "spring", stiffness: 300, damping: 24 } } };
@@ -98,9 +93,8 @@ const ProductSelector = ({ selectedProductId, selectedProductName, onSelectProdu
               onFocus={() => {
                 if (availableProducts.length > 0) setIsOpen(true);
               }}
-              className={`w-full bg-white border border-gray-200 focus:border-[#D4AF37]/50 rounded-xl text-sm font-semibold text-[#111] outline-none transition-all p-3.5 pr-10 ${
-                availableProducts.length === 0 ? "bg-gray-100 cursor-not-allowed text-gray-400" : ""
-              }`}
+              className={`w-full bg-white border border-gray-200 focus:border-[#D4AF37]/50 rounded-xl text-sm font-semibold text-[#111] outline-none transition-all p-3.5 pr-10 ${availableProducts.length === 0 ? "bg-gray-100 cursor-not-allowed text-gray-400" : ""
+                }`}
             />
             <FiPackage className="absolute right-3.5 text-gray-400 pointer-events-none" />
           </div>
@@ -140,21 +134,6 @@ const ProductSelector = ({ selectedProductId, selectedProductName, onSelectProdu
   );
 };
 
-
-// Helper for E.164 phone formatting
-const formatPhoneNumberE164 = (phone) => {
-  if (!phone) return "";
-  let clean = phone.replace(/[^\d+]/g, "");
-  if (!clean.startsWith("+")) {
-    if (clean.length === 10) {
-      clean = "+91" + clean;
-    } else {
-      clean = "+" + clean;
-    }
-  }
-  return clean;
-};
-
 const Invoice = () => {
   const invoiceRef = useRef();
   const location = useLocation();
@@ -163,10 +142,7 @@ const Invoice = () => {
 
   const [customer, setCustomer] = useState({
     name: "",
-    phone: "",
-    address: "",
-    place: "",
-    pincode: ""
+    phone: ""
   });
   const [editId, setEditId] = useState(null);
 
@@ -174,14 +150,8 @@ const Invoice = () => {
     { id: 1, productId: "", productName: "", price: "", quantity: 1, category: "" }
   ]);
   const [availableProducts, setAvailableProducts] = useState([]);
-  const [pincodeLoading, setPincodeLoading] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState("BHR-100");
   const [loading, setLoading] = useState(false);
-  const [isSharing, setIsSharing] = useState(false);
-  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
-  const [whatsappLoading, setWhatsappLoading] = useState(false);
-  const [whatsappStatus, setWhatsappStatus] = useState("idle"); // idle | sending | success | error
-  const [whatsappErrorMessage, setWhatsappErrorMessage] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("paid");
   const [invoiceDate, setInvoiceDate] = useState(() => {
     const d = new Date();
@@ -218,23 +188,20 @@ const Invoice = () => {
     const formattedDate = editInvoice.invoiceDate
       ? editInvoice.invoiceDate
       : editInvoice.createdAt
-      ? new Date(
+        ? new Date(
           new Date(editInvoice.createdAt).getTime() -
-            new Date(editInvoice.createdAt).getTimezoneOffset() * 60000
+          new Date(editInvoice.createdAt).getTimezoneOffset() * 60000
         )
           .toISOString()
           .split("T")[0]
-      : "";
+        : "";
 
     Promise.resolve().then(() => {
       setEditId(editInvoice.id);
       setInvoiceNumber(editInvoice.invoiceNumber || "");
       setCustomer({
         name: editInvoice.customerName || "",
-        phone: editInvoice.phone || "",
-        address: editInvoice.address || "",
-        place: editInvoice.place || "",
-        pincode: editInvoice.pincode || "",
+        phone: editInvoice.phone || ""
       });
 
       setPaymentStatus(editInvoice.paymentStatus || "paid");
@@ -281,38 +248,10 @@ const Invoice = () => {
       } else {
         setInvoiceNumber("BHR-100");
       }
-    }); 
+    });
   }, [location.state, editId]);
-  
 
   const handleCustomerChange = (e) => setCustomer({ ...customer, [e.target.name]: e.target.value });
-
-  // Auto-detect Post Office & District via India Pincode API
-  const handlePincodeChange = async (e) => {
-    const val = e.target.value.replace(/\D/g, '').slice(0, 6);
-    setCustomer({ ...customer, pincode: val });
-
-    if (val.length === 6) {
-      setPincodeLoading(true);
-      try {
-        const res = await fetch(`https://api.postalpincode.in/pincode/${val}`);
-        const data = await res.json();
-        if (data && data[0] && data[0].Status === "Success") {
-          const postOffice = data[0].PostOffice[0];
-          setCustomer(prev => ({
-            ...prev,
-            place: `${postOffice.Name}, ${postOffice.District}`
-          }));
-          toast.success(`Location matched: ${postOffice.District}`, { icon: '📍', style: { borderRadius: '14px', background: '#111', color: '#fff' }});
-        } else {
-          toast.error("Invalid Pincode", { style: { borderRadius: '14px', background: '#111', color: '#fff' }});
-        }
-      } catch {
-        toast.error("Failed to verify pincode");
-      }
-      setPincodeLoading(false);
-    }
-  };
 
   const addProductRow = () => {
     setInvoiceProducts([...invoiceProducts, { id: Date.now(), productId: "", productName: "", price: "", quantity: 1, category: "" }]);
@@ -353,7 +292,7 @@ const Invoice = () => {
     const price = Number(ip.price) || 0;
     const qty = Number(ip.quantity) || 0;
     const total = price * qty;
-    return { ...ip, price, total, qty }; 
+    return { ...ip, price, total, qty };
   });
 
   const subtotal = processedProducts.reduce((sum, p) => sum + p.total, 0);
@@ -364,7 +303,7 @@ const Invoice = () => {
   // Save Invoice & Update Stock
   const handleSaveInvoice = async (e) => {
     e.preventDefault();
-    
+
     if (!customer.name || !customer.phone) {
       toast.error("Please fill required customer details");
       return;
@@ -382,7 +321,7 @@ const Invoice = () => {
     setLoading(true);
     try {
       const stockChanges = {};
-      
+
       // If editing, add back old stock to offset the difference
       if (editId && location.state?.editInvoice?.products) {
         location.state.editInvoice.products.forEach(oldP => {
@@ -391,7 +330,7 @@ const Invoice = () => {
           }
         });
       }
-      
+
       // Subtract newly defined quantities
       processedProducts.forEach(newP => {
         if (newP.productId) {
@@ -441,9 +380,9 @@ const Invoice = () => {
         invoiceNumber: invoiceNumber,
         customerName: customer.name,
         phone: customer.phone,
-        address: customer.address,
-        place: customer.place,
-        pincode: customer.pincode,
+        address: "",
+        place: "",
+        pincode: "",
         products: finalProducts,
         shippingType: "none",
         shippingCharge: 0,
@@ -482,12 +421,12 @@ const Invoice = () => {
       }
 
       await update(ref(db), updates);
-      toast.success(editId ? "Invoice Updated Successfully!" : "Luxury Invoice Generated!", { style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }});
+      toast.success(editId ? "Invoice Updated Successfully!" : "Luxury Invoice Generated!", { style: { borderRadius: '14px', background: '#111', color: '#D4AF37' } });
 
       if (editId) {
         navigate('/reports');
       } else {
-        setCustomer({ name: "", phone: "", address: "", place: "", pincode: "" });
+        setCustomer({ name: "", phone: "" });
         setInvoiceProducts([{ id: Date.now(), productId: "", productName: "", price: "", quantity: 1, category: "" }]);
         setPaymentStatus("paid");
         const d = new Date();
@@ -514,72 +453,16 @@ const Invoice = () => {
     const pageHeight = pdf.internal.pageSize.getHeight();
     let imgHeight = (canvas.height * pdfWidth) / canvas.width;
     let imgWidth = pdfWidth;
-    
+
     if (imgHeight > pageHeight) {
       const ratio = pageHeight / imgHeight;
       imgHeight = pageHeight;
       imgWidth = pdfWidth * ratio;
     }
-    
+
     const offsetX = (pdfWidth - imgWidth) / 2;
     pdf.addImage(data, "PNG", offsetX, 0, imgWidth, imgHeight);
     return pdf;
-  };
-
-  // Progressive Web Share API & Fallback
-  const handleShare = async () => {
-    setIsSharing(true);
-    try {
-      const pdf = await generateInvoicePdf();
-      const formattedInvNum = (invoiceNumber || "100").replace(/[^a-zA-Z0-9_-]/g, "_");
-      const pdfFilename = `Bahara_Invoice_${formattedInvNum}.pdf`;
-      const pdfBlob = pdf.output("blob");
-      const file = new File([pdfBlob], pdfFilename, {
-        type: "application/pdf",
-        lastModified: Date.now(),
-      });
-
-      const isShareSupported = typeof navigator !== "undefined" && typeof navigator.share === "function";
-      const canShareFiles =
-        isShareSupported &&
-        typeof navigator.canShare === "function" &&
-        navigator.canShare({ files: [file] });
-
-      if (canShareFiles) {
-        try {
-          await navigator.share({
-            title: `Invoice ${invoiceNumber}`,
-            text: `Bahara International Invoice ${invoiceNumber}`,
-            files: [file],
-          });
-        } catch (shareErr) {
-          if (shareErr.name === "AbortError") {
-            // User cancelled/closed native share sheet - normal action, do not show error
-            return;
-          }
-          console.warn("Native share rejected, triggering download fallback:", shareErr);
-          pdf.save(pdfFilename);
-          toast("File sharing was rejected by device. Invoice PDF has been downloaded instead.", {
-            icon: 'ℹ️',
-            style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
-          });
-        }
-      } else {
-        // Fallback for browsers/devices that don't support file sharing
-        pdf.save(pdfFilename);
-        toast("File sharing is not supported on this browser. Invoice PDF has been downloaded.", {
-          icon: 'ℹ️',
-          style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
-        });
-      }
-    } catch (error) {
-      if (error.name !== "AbortError") {
-        console.error("Error sharing invoice:", error);
-        toast.error("Failed to share invoice PDF");
-      }
-    } finally {
-      setIsSharing(false);
-    }
   };
 
   // PDF Download
@@ -594,151 +477,10 @@ const Invoice = () => {
     }
   };
 
-  // WhatsApp Confirmation & Sending
-  const openWhatsAppConfirmation = () => {
-    if (!customer.name.trim()) {
-      toast.error("Please enter Customer Name first.");
-      return;
-    }
-    if (!customer.phone.trim()) {
-      toast.error("Please enter Customer Phone Number first.");
-      return;
-    }
-    setWhatsappStatus("idle");
-    setWhatsappErrorMessage("");
-    setIsWhatsAppModalOpen(true);
-  };
-
-  const executeSendWhatsApp = async () => {
-    setWhatsappLoading(true);
-    setWhatsappStatus("sending");
-    setWhatsappErrorMessage("");
-
-    try {
-      // 1. Generate PDF
-      const pdf = await generateInvoicePdf();
-      const pdfBase64 = pdf.output("datauristring");
-
-      // 2. Obtain Auth Token if signed in
-      let idToken = "";
-      if (currentUser && typeof currentUser.getIdToken === "function") {
-        try {
-          idToken = await currentUser.getIdToken();
-        } catch (tokenErr) {
-          console.warn("Could not retrieve ID token:", tokenErr);
-        }
-      }
-
-      // 3. Post to Netlify serverless function
-      const response = await fetch("/.netlify/functions/send-invoice-whatsapp", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {})
-        },
-        body: JSON.stringify({
-          invoiceId: editId || null,
-          invoiceNumber: invoiceNumber || "BHR-100",
-          customerName: customer.name,
-          customerPhone: customer.phone,
-          pdfBase64: pdfBase64
-        })
-      });
-
-      // 4. Safe Response Reading & Content-Type Inspection
-      const contentType = response.headers.get("content-type") || "";
-      const rawText = await response.text();
-      let data = null;
-
-      if (rawText && rawText.trim()) {
-        if (contentType.includes("application/json")) {
-          try {
-            data = JSON.parse(rawText);
-          } catch {
-            data = null;
-          }
-        } else {
-          try {
-            data = JSON.parse(rawText);
-          } catch {
-            data = null;
-          }
-        }
-      }
-
-      if (!response.ok || !data?.success) {
-        let errorMsg = data?.error;
-        if (!errorMsg) {
-          if (response.status === 413) {
-            errorMsg = "Invoice PDF size is too large to process via WhatsApp.";
-          } else if (response.status === 503 && data?.code === "MISSING_CREDENTIALS") {
-            errorMsg = "WhatsApp API configuration is incomplete on server.";
-          } else {
-            errorMsg = `WhatsApp request failed (HTTP ${response.status})`;
-          }
-        }
-
-        setWhatsappStatus("error");
-        setWhatsappErrorMessage(errorMsg);
-
-        if (editId) {
-          try {
-            await update(ref(db, `invoices/${editId}`), {
-              whatsappStatus: "failed",
-              whatsappSentAt: Date.now(),
-              whatsappSentTo: formatPhoneNumberE164(customer.phone),
-              whatsappError: errorMsg
-            });
-          } catch (dbErr) {
-            console.warn("Failed to record whatsapp failure status to RTDB:", dbErr);
-          }
-        }
-
-        toast.error(errorMsg);
-        return;
-      }
-
-      // 5. Record WhatsApp delivery metadata in DB if editing existing invoice
-      const targetPhone = data.sentTo || data.recipient || formatPhoneNumberE164(customer.phone);
-      if (editId) {
-        try {
-          await update(ref(db, `invoices/${editId}`), {
-            whatsappStatus: "sent",
-            whatsappSentAt: Date.now(),
-            whatsappSentTo: targetPhone,
-            whatsappMessageId: data.messageId || "",
-            whatsappError: null
-          });
-        } catch (dbErr) {
-          console.warn("Failed to write whatsapp status to RTDB:", dbErr);
-        }
-      }
-
-      setWhatsappStatus("success");
-      toast.success(`Invoice ${invoiceNumber} sent successfully to ${targetPhone}!`, {
-        duration: 5000,
-        style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
-      });
-      setTimeout(() => {
-        setIsWhatsAppModalOpen(false);
-        setWhatsappStatus("idle");
-        setWhatsappErrorMessage("");
-      }, 2000);
-    } catch (error) {
-      console.error("WhatsApp Send Exception:", error);
-      const fallbackErr = error.message || "Failed to send invoice via WhatsApp API.";
-      setWhatsappStatus("error");
-      setWhatsappErrorMessage(fallbackErr);
-      toast.error(fallbackErr);
-    } finally {
-      setWhatsappLoading(false);
-    }
-  };
-
   return (
     <div className="max-w-[1400px] mx-auto pb-10 font-['Inter']">
       <Toaster />
-      
+
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -748,36 +490,26 @@ const Invoice = () => {
       </motion.div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-        
+
         {/* Left Column - Form */}
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="xl:col-span-7 space-y-8">
-          
+
           {/* Customer Details */}
           <motion.div variants={itemVariants} className="bg-white premium-shadow border border-gray-100 rounded-[30px] p-8 relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-32 h-32 bg-[#D4AF37] blur-[80px] opacity-10 rounded-full group-hover:opacity-20 transition-opacity"></div>
             <h3 className="text-xl font-bold text-[#111] mb-6 tracking-tight flex items-center gap-2"><FiMapPin className="text-[#D4AF37]" /> Customer Details</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
-              <div className="md:col-span-2 flex flex-col md:flex-row gap-6">
-                <input type="text" name="name" placeholder="Customer Name *" value={customer.name} onChange={handleCustomerChange} className="w-full bg-gray-50 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4" required />
-                <input type="tel" name="phone" placeholder="Phone Number *" value={customer.phone} onChange={handleCustomerChange} className="w-full bg-gray-50 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4" required />
-              </div>
-              <div className="md:col-span-2">
-                <textarea name="address" placeholder="Full Postal Address" value={customer.address} onChange={handleCustomerChange} rows="2" className="w-full bg-gray-50 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4 resize-none"></textarea>
-              </div>
-              <div className="relative group/input">
-                <input type="text" name="pincode" placeholder="Pincode (Auto Detect)" value={customer.pincode} onChange={handlePincodeChange} maxLength={6} className="w-full bg-gray-50 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4" />
-                {pincodeLoading && <FiLoader className="absolute right-4 top-4 text-lg text-[#D4AF37] animate-spin" />}
-              </div>
-              <input type="text" name="place" placeholder="Post Office / District" value={customer.place} onChange={handleCustomerChange} className="w-full bg-gray-50 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4" />
+              <input type="text" name="name" placeholder="Customer Name *" value={customer.name} onChange={handleCustomerChange} className="w-full bg-gray-50 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4" required />
+              <input type="tel" name="phone" placeholder="Phone Number *" value={customer.phone} onChange={handleCustomerChange} className="w-full bg-gray-50 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4" required />
             </div>
           </motion.div>
 
           {/* Order Items */}
           <motion.div variants={itemVariants} className="bg-white premium-shadow border border-gray-100 rounded-[30px] p-8">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-[#111] tracking-tight flex items-center gap-2"><FiPackage className="text-[#D4AF37]"/> Order Items</h3>
+              <h3 className="text-xl font-bold text-[#111] tracking-tight flex items-center gap-2"><FiPackage className="text-[#D4AF37]" /> Order Items</h3>
               <button onClick={addProductRow} className="bg-[#111] text-[#D4AF37] px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-black transition-colors shadow-md cursor-pointer">
-                <FiPlus/> Add Product
+                <FiPlus /> Add Product
               </button>
             </div>
 
@@ -796,7 +528,7 @@ const Invoice = () => {
             <div className="space-y-4">
               {invoiceProducts.map((p) => (
                 <div key={p.id} className="flex flex-col md:flex-row items-start md:items-center gap-4 bg-gray-50/70 p-4 rounded-[20px] border border-gray-100 hover:bg-white hover:border-[#D4AF37]/40 transition-colors group">
-                  
+
                   {/* Product Search & Selection (Admin Products ONLY) */}
                   <div className="flex-1 w-full">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Product (Admin Catalog)</label>
@@ -807,20 +539,20 @@ const Invoice = () => {
                       availableProducts={selectableProducts}
                     />
                   </div>
-                  
+
                   {/* Automatically Populated Price (MANUALLY EDITABLE FOR THIS INVOICE ONLY) */}
                   <div className="w-full md:w-32 relative">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Rate (₹)</label>
                     <div className="relative flex items-center">
                       <span className="absolute left-3.5 text-gray-400 font-bold text-sm">₹</span>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         min="0"
                         step="any"
-                        value={p.price} 
+                        value={p.price}
                         onChange={(e) => updateProductRow(p.id, "price", e.target.value)}
-                        className="w-full bg-white border border-gray-200 focus:border-[#D4AF37]/50 text-sm font-bold text-[#111] rounded-xl p-3.5 pl-8 outline-none transition-all" 
-                        placeholder="0" 
+                        className="w-full bg-white border border-gray-200 focus:border-[#D4AF37]/50 text-sm font-bold text-[#111] rounded-xl p-3.5 pl-8 outline-none transition-all"
+                        placeholder="0"
                       />
                     </div>
                   </div>
@@ -829,13 +561,13 @@ const Invoice = () => {
                   {/* Quantity (EDITABLE) */}
                   <div className="w-full md:w-24 relative">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1 text-center">Qty</label>
-                    <input 
-                      type="number" 
-                      min="1" 
-                      value={p.quantity} 
-                      onChange={(e) => updateProductRow(p.id, "quantity", e.target.value)} 
-                      className="w-full bg-white border border-gray-200 focus:border-[#D4AF37]/50 rounded-xl text-sm font-semibold text-[#111] outline-none transition-all p-3.5 text-center" 
-                      placeholder="Qty" 
+                    <input
+                      type="number"
+                      min="1"
+                      value={p.quantity}
+                      onChange={(e) => updateProductRow(p.id, "quantity", e.target.value)}
+                      className="w-full bg-white border border-gray-200 focus:border-[#D4AF37]/50 rounded-xl text-sm font-semibold text-[#111] outline-none transition-all p-3.5 text-center"
+                      placeholder="Qty"
                     />
                   </div>
 
@@ -870,41 +602,30 @@ const Invoice = () => {
                   </button>
                 </div>
               </div>
-              
+
               <div>
                 <h3 className="text-xl font-bold text-[#111] mb-6 tracking-tight flex items-center gap-2">
                   <FiClock className="text-[#D4AF37]" /> Invoice Date
                 </h3>
-                <input 
-                  type="date" 
-                  value={invoiceDate} 
-                  onChange={(e) => setInvoiceDate(e.target.value)} 
-                  className="w-full bg-gray-50 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4" 
-                  required 
+                <input
+                  type="date"
+                  value={invoiceDate}
+                  onChange={(e) => setInvoiceDate(e.target.value)}
+                  className="w-full bg-gray-50 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4"
+                  required
                 />
               </div>
             </div>
           </motion.div>
-          
+
           {/* Actions */}
           <motion.div variants={itemVariants} className="bg-[#111] p-6 rounded-[30px] premium-shadow flex flex-col sm:flex-row gap-4 relative overflow-hidden flex-wrap">
             <div className="absolute -top-20 -right-20 w-40 h-40 bg-[#D4AF37] blur-[70px] opacity-20 rounded-full"></div>
             <button onClick={handleSaveInvoice} disabled={loading} className="flex-1 min-w-[200px] bg-[#D4AF37] text-[#111] px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-yellow-400 transition-all shadow-[0_10px_30px_-10px_rgba(212,175,55,0.4)] disabled:opacity-70 z-10 text-lg tracking-wide cursor-pointer">
-              {loading ? <FiLoader className="animate-spin text-xl"/> : <><FiSave className="text-xl"/> {editId ? "Update & Save Invoice" : "Generate & Save Invoice"}</>}
-            </button>
-            <button
-              type="button"
-              onClick={openWhatsAppConfirmation}
-              disabled={whatsappLoading}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all z-10 shadow-lg disabled:opacity-70 cursor-pointer"
-            >
-              {whatsappLoading ? <FiLoader className="animate-spin text-xl"/> : <><FiSend className="text-xl"/> Send via WhatsApp</>}
-            </button>
-            <button onClick={handleShare} disabled={isSharing} className="bg-white/10 border border-white/5 text-white hover:bg-[#D4AF37] hover:text-[#111] hover:border-[#D4AF37] px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all z-10 disabled:opacity-70 cursor-pointer">
-              {isSharing ? <FiLoader className="animate-spin text-xl"/> : <><FiShare2 className="text-xl"/> Share</>}
+              {loading ? <FiLoader className="animate-spin text-xl" /> : <><FiSave className="text-xl" /> {editId ? "Update & Save Invoice" : "Generate & Save Invoice"}</>}
             </button>
             <button onClick={downloadPDF} className="bg-white/10 border border-white/5 text-white hover:bg-[#D4AF37] hover:text-[#111] hover:border-[#D4AF37] px-6 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all z-10 cursor-pointer">
-              <FiDownload className="text-xl"/> PDF
+              <FiDownload className="text-xl" /> PDF
             </button>
           </motion.div>
         </motion.div>
@@ -912,13 +633,13 @@ const Invoice = () => {
         {/* Right Column - Invoice Preview */}
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="xl:col-span-5 flex flex-col h-auto overflow-visible">
           <h3 className="text-xl font-bold text-[#111] tracking-tight mb-6 font-['Poppins']">Live Preview</h3>
-          
+
           <div className="w-full h-auto overflow-visible">
             <div ref={invoiceRef} className="bg-white w-full h-auto p-6 sm:p-8 flex flex-col relative text-[#111] rounded-[20px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] border border-[#D4AF37]/20 overflow-visible font-['Poppins']">
-              
+
               {/* Accent Header Bar */}
               <div className="absolute top-0 left-0 w-full h-1.5 sm:p-2 bg-gradient-to-r from-[#111] via-[#1d164a] to-[#111] rounded-t-[20px]"></div>
-              
+
               {/* Company Logo & Invoice Info */}
               <div className="flex justify-between items-start mt-2 mb-6 gap-6">
                 <div className="flex flex-col max-w-[55%]">
@@ -927,7 +648,7 @@ const Invoice = () => {
                   <p className="text-[11px] font-semibold text-gray-600 mt-0.5">Mob: 7594990433</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[9px] font-bold text-[#202687] tracking-widest uppercase mb-1.5">Invoice</p> 
+                  <p className="text-[9px] font-bold text-[#202687] tracking-widest uppercase mb-1.5">Invoice</p>
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">No: <span className="text-[#111]">{invoiceNumber}</span></p>
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-0.5">Date: <span className="text-[#111]">{displayDateStr}</span></p>
                 </div>
@@ -938,13 +659,11 @@ const Invoice = () => {
                 <h3 className="text-[9px] font-bold text-[#202687] uppercase tracking-widest mb-2 border-b border-gray-200 pb-2">Billed To Customer</h3>
                 <p className="font-bold text-base mb-0.5 tracking-tight text-[#111] uppercase">{customer.name || "Customer Name"}</p>
                 {customer.phone && <p className="text-[11px] text-gray-500 font-semibold">{customer.phone}</p>}
-                {customer.address && <p className="text-[11px] text-gray-500 font-semibold mt-0.5 leading-relaxed">{customer.address}</p>}
-                {(customer.place || customer.pincode) && <p className="text-[11px] text-gray-500 font-semibold mt-0.5">{customer.place} {customer.pincode && `- ${customer.pincode}`}</p>}
               </div>
 
               {/* Products Table */}
               <div className="flex-1 overflow-visible mb-4">
-                <table className="w-full text-left border-collapse"> 
+                <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-gray-200">
                       <th className="pb-2 text-[9px] font-bold uppercase tracking-widest text-[#202687]">Description</th>
@@ -975,7 +694,7 @@ const Invoice = () => {
               </div>
 
               {/* Totals Section */}
-              <div className="ml-auto w-full sm:w-2/3 lg:w-3/4 pt-2 border-t-2 border-[#111]"> 
+              <div className="ml-auto w-full sm:w-2/3 lg:w-3/4 pt-2 border-t-2 border-[#111]">
                 <div className="space-y-2 mt-3">
                   <div className="flex justify-between items-center text-xs font-bold text-gray-500 uppercase tracking-wider">
                     <span>Subtotal</span>
@@ -987,7 +706,7 @@ const Invoice = () => {
                   </div>
                 </div>
               </div>
-              <h3 className="text-[8px] font-bold text-gray-400 text-center uppercase tracking-widest mt-8">Thank you for choosing Bahara</h3> 
+              <h3 className="text-[8px] font-bold text-gray-400 text-center uppercase tracking-widest mt-8">Thank you for choosing Bahara</h3>
 
               {/* Accent footer Bar */}
               <div className="absolute bottom-0 left-0 w-full h-1.5 sm:p-2 bg-gradient-to-r from-[#111] via-[#322873] to-[#111] rounded-b-[20px]"></div>
@@ -996,90 +715,6 @@ const Invoice = () => {
           </div>
         </motion.div>
       </div>
-
-      {/* WHATSAPP CONFIRMATION MODAL */}
-      <AnimatePresence>
-        {isWhatsAppModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-[32px] p-7 w-full max-w-md shadow-2xl relative">
-              <button onClick={() => setIsWhatsAppModalOpen(false)} disabled={whatsappLoading} className="absolute top-6 right-6 text-gray-400 hover:text-[#111] text-xl cursor-pointer">
-                <FiX />
-              </button>
-
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-2xl shadow-sm shrink-0">
-                  <FiSend />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-[#111] font-['Poppins']">Send via WhatsApp</h3>
-                  <p className="text-xs text-gray-400 font-medium">WhatsApp Business Cloud API</p>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 mb-6 space-y-2 text-sm">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-bold text-gray-400 uppercase tracking-wider">Invoice</span>
-                  <span className="font-bold text-[#111] bg-white px-2.5 py-1 rounded-lg border border-gray-200">{invoiceNumber}</span>
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-bold text-gray-400 uppercase tracking-wider">Customer</span>
-                  <span className="font-bold text-[#111]">{customer.name || "N/A"}</span>
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-bold text-gray-400 uppercase tracking-wider">Recipient Phone</span>
-                  <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">{formatPhoneNumberE164(customer.phone)}</span>
-                </div>
-              </div>
-
-              {whatsappStatus === "success" ? (
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-center gap-2 text-emerald-800 font-bold text-sm mb-6">
-                  <FiCheckCircle className="text-xl text-emerald-600 shrink-0" />
-                  <span>Invoice sent successfully to {formatPhoneNumberE164(customer.phone)}!</span>
-                </div>
-              ) : whatsappStatus === "error" ? (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start gap-2.5 text-red-700 font-medium text-xs mb-6">
-                  <FiAlertTriangle className="text-lg text-red-600 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="font-bold text-red-800">Delivery Failed</p>
-                    <p className="mt-0.5">{whatsappErrorMessage || "Unable to send invoice via WhatsApp API."}</p>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs text-gray-500 mb-6 leading-relaxed">
-                  Send official PDF document for invoice <strong className="text-[#111]">{invoiceNumber}</strong> directly to <strong className="text-emerald-700">{formatPhoneNumberE164(customer.phone)}</strong> via Meta WhatsApp Business Cloud API?
-                </p>
-              )}
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsWhatsAppModalOpen(false)}
-                  disabled={whatsappLoading}
-                  className="flex-1 bg-gray-100 text-gray-600 py-3.5 rounded-xl font-bold hover:bg-gray-200 transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={executeSendWhatsApp}
-                  disabled={whatsappLoading || whatsappStatus === "success"}
-                  className="flex-1 bg-emerald-600 text-white py-3.5 rounded-xl font-bold hover:bg-emerald-500 transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  {whatsappLoading ? (
-                    <><FiLoader className="animate-spin text-lg"/> Sending...</>
-                  ) : whatsappStatus === "error" ? (
-                    <><FiSend /> Retry Send</>
-                  ) : whatsappStatus === "success" ? (
-                    <><FiCheckCircle /> Sent</>
-                  ) : (
-                    <><FiSend /> Send</>
-                  )}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 };

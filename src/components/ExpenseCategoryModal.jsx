@@ -5,7 +5,7 @@ import { db } from "../firebase";
 import { ref, push, update } from "firebase/database";
 import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
-import { FiX, FiFolderPlus, FiEdit, FiCheckCircle } from "react-icons/fi";
+import { FiX, FiFolderPlus, FiEdit, FiCheckCircle, FiUsers, FiLock } from "react-icons/fi";
 
 export default function ExpenseCategoryModal({
   isOpen,
@@ -17,6 +17,7 @@ export default function ExpenseCategoryModal({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState("active");
+  const [allowEmployee, setAllowEmployee] = useState(true);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -24,10 +25,12 @@ export default function ExpenseCategoryModal({
       setName(categoryToEdit.name || "");
       setDescription(categoryToEdit.description || "");
       setStatus(categoryToEdit.status || "active");
+      setAllowEmployee(categoryToEdit.allowEmployee !== false);
     } else {
       setName("");
       setDescription("");
       setStatus("active");
+      setAllowEmployee(true);
     }
   }, [categoryToEdit, isOpen]);
 
@@ -61,16 +64,18 @@ export default function ExpenseCategoryModal({
           name: cleanName,
           description: description.trim(),
           status,
+          allowEmployee,
           updatedAt: nowTime
         });
         toast.success("Expense Category Updated", { style: { borderRadius: '14px', background: '#111', color: '#D4AF37' } });
-        createdCatObj = { id: categoryToEdit.id, name: cleanName, description, status };
+        createdCatObj = { id: categoryToEdit.id, name: cleanName, description, status, allowEmployee };
       } else {
         const newRef = push(ref(db, "expenseCategories"));
         const newCategoryData = {
           name: cleanName,
           description: description.trim(),
           status,
+          allowEmployee,
           createdAt: nowTime,
           updatedAt: nowTime
         };
@@ -110,7 +115,7 @@ export default function ExpenseCategoryModal({
                   {categoryToEdit ? "Edit Expense Category" : "Add Expense Category"}
                 </h3>
                 <p className="text-xs text-gray-400 font-medium">
-                  {categoryToEdit ? "Modify category details" : "Create dynamic expense category"}
+                  {categoryToEdit ? "Modify category details & permissions" : "Create dynamic expense category"}
                 </p>
               </div>
             </div>
@@ -178,6 +183,39 @@ export default function ExpenseCategoryModal({
                   }`}
                 >
                   Inactive
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 flex items-center justify-between">
+                <span>Employee Access</span>
+                <span className="text-[10px] text-gray-400 font-normal">Employee visibility</span>
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAllowEmployee(true)}
+                  className={`py-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border transition-all ${
+                    allowEmployee
+                      ? "bg-[#111] text-[#D4AF37] border-[#111] shadow-md"
+                      : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"
+                  }`}
+                >
+                  <FiUsers className={allowEmployee ? "text-[#D4AF37]" : "text-gray-400"} />
+                  Authorized
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAllowEmployee(false)}
+                  className={`py-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border transition-all ${
+                    !allowEmployee
+                      ? "bg-amber-600 text-white border-amber-600 shadow-md"
+                      : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"
+                  }`}
+                >
+                  <FiLock className={!allowEmployee ? "text-white" : "text-gray-400"} />
+                  Admin Only
                 </button>
               </div>
             </div>

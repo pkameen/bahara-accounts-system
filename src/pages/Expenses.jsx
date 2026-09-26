@@ -14,7 +14,9 @@ import {
   FiPlus, 
   FiTag, 
   FiX, 
-  FiChevronDown 
+  FiChevronDown,
+  FiUsers,
+  FiLock
 } from "react-icons/fi";
 import { motion } from "framer-motion";
 
@@ -68,10 +70,16 @@ const Expenses = () => {
     return () => unsub();
   }, []);
 
-  // Filter Active Categories for Dropdown
-  const activeCategories = useMemo(() => {
-    return categories.filter(c => c.status === "active");
-  }, [categories]);
+  // Filter Categories for Dropdown based on Role & Status
+  const selectableCategories = useMemo(() => {
+    return categories.filter(c => {
+      if (c.status !== "active") return false;
+      if (role === "employee") {
+        return c.allowEmployee !== false; // Authorized for employees if true or undefined
+      }
+      return true; // Admin can see all active categories
+    });
+  }, [categories, role]);
 
   // Fetch Expenses
   useEffect(() => {
@@ -126,8 +134,14 @@ const Expenses = () => {
   const handleExpense = async (e) => {
     e.preventDefault();
 
-    if (!selectedCategoryId && activeCategories.length > 0) {
+    if (!selectedCategoryId && selectableCategories.length > 0) {
       toast.error("Please select an Expense Category");
+      return;
+    }
+
+    const matchedCat = categories.find(c => c.id === selectedCategoryId);
+    if (role === "employee" && matchedCat && matchedCat.allowEmployee === false) {
+      toast.error("You are not authorized to use this expense category");
       return;
     }
 
@@ -217,7 +231,6 @@ const Expenses = () => {
   const handleToggleCategoryStatus = async (cat) => {
     if (!isAdmin) return;
     const newStatus = cat.status === "active" ? "inactive" : "active";
-    // eslint-disable-next-line react-hooks/purity
     const nowTime = Date.now();
     try {
       await update(ref(db, `expenseCategories/${cat.id}`), {
@@ -228,6 +241,28 @@ const Expenses = () => {
     } catch (error) {
       console.error(error);
       toast.error("Failed to update category status");
+    }
+  };
+
+  // Toggle Employee Access (Admin control)
+  const handleToggleEmployeeAccess = async (cat) => {
+    if (!isAdmin) return;
+    const currentAllowed = cat.allowEmployee !== false;
+    const newAllowed = !currentAllowed;
+    const nowTime = Date.now();
+    try {
+      await update(ref(db, `expenseCategories/${cat.id}`), {
+        allowEmployee: newAllowed,
+        updatedAt: nowTime
+      });
+      toast.success(
+        newAllowed
+          ? `Category '${cat.name}' is now visible to Employees`
+          : `Category '${cat.name}' is now restricted to Admin Only`
+      );
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to update employee access permission");
     }
   };
 
@@ -291,13 +326,15 @@ const Expenses = () => {
                   className="w-full bg-gray-50 hover:bg-gray-100/50 border border-gray-200 focus:bg-white focus:border-[#D4AF37] rounded-2xl text-xs font-bold text-[#111] p-3.5 appearance-none cursor-pointer outline-none transition-all"
                   required
                 >
-                  {activeCategories.length === 0 ? (
-                    <option value="">No expense categories available</option>
+                  {selectableCategories.length === 0 ? (
+                    <option value="">No expense categories available for your role</option>
                   ) : (
                     <option value="">Select Expense Category...</option>
                   )}
-                  {activeCategories.map(cat => (
-                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  {selectableCategories.map(cat => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name} {isAdmin && cat.allowEmployee === false ? " (Admin Only)" : ""}
+                    </option>
                   ))}
                 </select>
                 <FiChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -358,7 +395,7 @@ const Expenses = () => {
                 type="date" 
                 value={expenseDate} 
                 onChange={(e) => setExpenseDate(e.target.value)} 
-                className="w-full bg-gray-50 hover:bg-gray-100/50 border border-gray-200 focus:bg-white focus:border-[#D4AF37] rounded-2xl text-xs font-bold text-[#111] outline-none transition-all p-3.5 cursor-pointer" 
+                className="w-full bg-gray-50 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37] rounded-2xl text-xs font-bold text-[#111] outline-none transition-all p-3.5 cursor-pointer" 
                 required 
               />
             </div>
@@ -523,7 +560,7 @@ const Expenses = () => {
                 </div>
                 <div>
                   <h3 className="text-xl font-bold text-[#111] font-['Poppins']">Expense Categories</h3>
-                  <p className="text-xs text-gray-400 font-medium">Admin control panel for expense categories</p>
+                  <p className="text-xs text-gray-400 font-medium">Admin control panel for expense categories & permissions</p>
                 </div>
               </div>
               <button onClick={() => setIsManageCatOpen(false)} className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">
@@ -534,20 +571,35 @@ const Expenses = () => {
             <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-3">
               {categories.length > 0 ? (
                 categories.map(cat => (
-                  <div key={cat.id} className="flex items-center justify-between p-4 rounded-2xl border border-gray-100 bg-gray-50/50 hover:bg-gray-100/50 transition-colors">
+                  <div key={cat.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl border border-gray-100 bg-gray-50/50 hover:bg-gray-100/50 transition-colors gap-3">
                     <div>
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="font-bold text-[#111] text-sm">{cat.name}</h4>
                         <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
                           cat.status === "active" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
                         }`}>
                           {cat.status || "active"}
                         </span>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                          cat.allowEmployee !== false ? "bg-blue-50 text-blue-700 border border-blue-200" : "bg-amber-50 text-amber-700 border border-amber-200"
+                        }`}>
+                          {cat.allowEmployee !== false ? <><FiUsers className="text-xs" /> Authorized</> : <><FiLock className="text-xs" /> Admin Only</>}
+                        </span>
                       </div>
                       {cat.description && <p className="text-xs text-gray-400 mt-1">{cat.description}</p>}
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                      <button
+                        onClick={() => handleToggleEmployeeAccess(cat)}
+                        title={cat.allowEmployee !== false ? "Restrict to Admin Only" : "Allow Employees to view & use"}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                          cat.allowEmployee !== false ? "bg-amber-100 text-amber-800 hover:bg-amber-200" : "bg-blue-100 text-blue-800 hover:bg-blue-200"
+                        }`}
+                      >
+                        {cat.allowEmployee !== false ? "Make Admin Only" : "Authorize Employee"}
+                      </button>
+
                       <button
                         onClick={() => {
                           setCatToEdit(cat);
