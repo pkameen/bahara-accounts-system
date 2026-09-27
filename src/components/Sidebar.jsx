@@ -59,12 +59,12 @@ export default function Sidebar({ isOpen, setIsOpen }) {
         <div className="flex items-center justify-between px-7 py-9 relative mt-2 mb-2">
           <div className="flex items-center gap-4 group cursor-default">
             <div className="w-12 h-12 rounded-[15px] mt-3 bg-gradient-to-br from-white/10 to-white/5 border border-white/10 flex items-center justify-center shrink-0 shadow-lg group-hover:border-[#D4AF37]/50 group-hover:shadow-[0_0_15px_rgba(212,175,55,0.2)] transition-all duration-500 overflow-hidden">
-              <img src={logoIcon} alt="Bahara International Logo" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+              <img src={logoIcon} alt="Bahara Logo" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
             </div>
             <div className="flex flex-col justify-center">
-              <h2 className="text-white font-bold tracking-tight text-[17px] mt-3.5 whitespace-nowrap leading-tight font-['Poppins']">Bahara International</h2>
+              <h2 className="text-white font-bold tracking-tight text-[17px] mt-3.5 whitespace-nowrap leading-tight font-['Poppins']">Bahara</h2>
               <p className="text-[#D4AF37] text-[8px] tracking-wider uppercase mt-0.5 font-bold">
-                {role === "employee" ? "Sales Portal" : "Global Spice Export"}
+                {role === "employee" ? "Sales Portal" : "Accounts & Management System"}
               </p>
             </div>
           </div>

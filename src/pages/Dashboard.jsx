@@ -20,6 +20,9 @@ import {
 import BySalesmanChart from "../components/BySalesmanChart";
 import ProductSalesChart from "../components/ProductSalesChart";
 import EmployeeAvatar from "../components/EmployeeAvatar";
+import DateFilter from "../components/DateFilter";
+import SalesCard from "../components/SalesCard";
+import ReportTable from "../components/ReportTable";
 import { calculateTopSalesEmployees, filterItemsByDate, calculateEmployeeStockReconciliation } from "../utils/calculations";
 
 

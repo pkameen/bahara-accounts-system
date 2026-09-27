@@ -22,7 +22,9 @@ import {
   FiAward,
   FiChevronDown,
   FiChevronUp,
-  FiLayers
+  FiLayers,
+  FiTrash2,
+  FiEdit
 } from "react-icons/fi";
 
 const PRODUCT_COLORS = [
@@ -64,7 +66,7 @@ const ChartTooltip = ({ active, payload }) => {
   return null;
 };
 
-export default function EmployeeStockDetailModal({ employee, isOpen, onClose }) {
+export default function EmployeeStockDetailModal({ employee, isOpen, onClose, onEditIssue, onDeleteIssue, isAdmin }) {
   const [activeTab, setActiveTab] = useState("breakdown"); // "breakdown" | "issues" | "sales" | "reconciliation"
   const [expandedIssueId, setExpandedIssueId] = useState(null);
   const [activePieIndex, setActivePieIndex] = useState(null);
@@ -487,7 +489,7 @@ export default function EmployeeStockDetailModal({ employee, isOpen, onClose }) 
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-3">
                             <div className="text-right">
                               <span className="text-xs font-bold text-[#D4AF37] font-['Poppins'] block">
                                 ₹{totalVal.toLocaleString('en-IN')}
@@ -496,6 +498,30 @@ export default function EmployeeStockDetailModal({ employee, isOpen, onClose }) 
                                 {iss.totalQuantity || iss.quantity || 0} units
                               </span>
                             </div>
+                            {isAdmin && (
+                              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                {onEditIssue && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onEditIssue(iss)}
+                                    title="Edit Stock Allocation"
+                                    className="p-2 rounded-xl bg-gray-100 hover:bg-[#D4AF37]/20 text-gray-600 hover:text-[#D4AF37] transition-colors cursor-pointer"
+                                  >
+                                    <FiEdit className="text-sm" />
+                                  </button>
+                                )}
+                                {onDeleteIssue && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onDeleteIssue(iss.id)}
+                                    title="Delete Stock Allocation"
+                                    className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 transition-colors cursor-pointer"
+                                  >
+                                    <FiTrash2 className="text-sm" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
                             <button className="text-gray-400 text-lg">
                               {isExpanded ? <FiChevronUp /> : <FiChevronDown />}
                             </button>

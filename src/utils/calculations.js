@@ -569,6 +569,153 @@ export const calculateProductSales = (invoices = [], productsList = []) => {
 };
 
 /**
+ * Dynamic Admin Central Company Stock Engine
+ * Calculates live Admin Available Stock from Stock Management ledger records
+ * strictly excluding legacy initial stock from Product Master.
+ */
+export const calculateAdminCentralStock = ({
+  productsList = [],
+  stockIssues = [],
+  invoices = []
+}) => {
+  const adminStockMap = {};
+
+  const prodLookupById = {};
+  const prodLookupByName = {};
+
+  if (Array.isArray(productsList)) {
+    productsList.forEach((prod) => {
+      if (!prod || !prod.id) return;
+      prodLookupById[prod.id] = prod;
+      if (prod.productName || prod.name) {
+        const nameKey = (prod.productName || prod.name).trim().toLowerCase();
+        prodLookupByName[nameKey] = prod;
+      }
+
+      adminStockMap[prod.id] = {
+        id: prod.id,
+        productId: prod.id,
+        productName: prod.productName || prod.name || "Product",
+        category: prod.category || "General",
+        sellingPrice: Number(prod.sellingPrice || prod.price || 0),
+        unit: prod.unit || "KG",
+        image: prod.image || null,
+
+        // Stock Movement Breakdown
+        totalStockAdded: 0,
+        totalStockTransferred: 0,
+        totalAdminInvoiced: 0,
+
+        // Calculated Live Admin Current Available Stock
+        currentAdminStock: 0,
+        totalStockValue: 0
+      };
+    });
+  }
+
+  // 1. Process Stock Additions & Transfers in Stock Management (stockIssues / stockTransfers)
+  if (Array.isArray(stockIssues)) {
+    stockIssues.forEach((issue) => {
+      const isAddition =
+        issue.type === "addition" ||
+        issue.type === "received" ||
+        issue.type === "add" ||
+        (issue.from && (issue.from.toLowerCase().includes("supplier") || issue.from.toLowerCase().includes("purchase"))) ||
+        (issue.employeeId === "admin_stock" && issue.type !== "transfer" && issue.type !== "issue");
+
+      const items = Array.isArray(issue.products) && issue.products.length > 0
+        ? issue.products
+        : (issue.quantity ? [{
+            productId: issue.productId,
+            productName: issue.productName,
+            quantity: issue.quantity,
+            unit: issue.unit
+          }] : []);
+
+      items.forEach((item) => {
+        const qty = Number(item.quantity) || 0;
+        if (qty <= 0) return;
+
+        const rawId = (item.productId || "").trim();
+        const rawName = (item.productName || "Unknown Product").trim();
+        const normName = rawName.toLowerCase();
+
+        const dbProd = (rawId && prodLookupById[rawId]) || prodLookupByName[normName] || null;
+        const pId = dbProd?.id || rawId;
+
+        if (pId && adminStockMap[pId]) {
+          if (item.unit && item.unit !== "units") {
+            adminStockMap[pId].unit = item.unit;
+          }
+
+          if (isAddition) {
+            adminStockMap[pId].totalStockAdded += qty;
+          } else {
+            // Stock transferred/allocated to employee
+            adminStockMap[pId].totalStockTransferred += qty;
+          }
+        }
+      });
+    });
+  }
+
+  // 2. Process Stock Consumed by Direct Admin Invoices
+  if (Array.isArray(invoices)) {
+    invoices.forEach((inv) => {
+      const creatorUid = inv.createdByUid;
+      const creatorRole = inv.createdByRole;
+      const creatorUserId = inv.createdByUserId;
+      const creatorName = inv.createdByName;
+
+      const isAdminInvoice =
+        creatorRole === "admin" ||
+        creatorUid === "admin_uid_2026" ||
+        creatorUid === "admin_legacy" ||
+        creatorUserId === "admin" ||
+        (!creatorUid && creatorName === "Admin");
+
+      // Only direct Admin invoices deduct from Admin Central Stock
+      if (!isAdminInvoice) return;
+
+      const prods = inv.products || [];
+      prods.forEach((item) => {
+        const qty = Number(item.quantity) || 0;
+        if (qty <= 0) return;
+
+        const rawId = (item.productId || "").trim();
+        const rawName = (item.productName || item.name || "Unknown Product").trim();
+        const normName = rawName.toLowerCase();
+
+        const dbProd = (rawId && prodLookupById[rawId]) || prodLookupByName[normName] || null;
+        const pId = dbProd?.id || rawId;
+
+        if (pId && adminStockMap[pId]) {
+          adminStockMap[pId].totalAdminInvoiced += qty;
+        }
+      });
+    });
+  }
+
+  // 3. Compute Live Admin Current Available Stock per Product
+  Object.values(adminStockMap).forEach((item) => {
+    // Current Admin Stock = totalAdded - totalTransferred - totalAdminInvoiced (ignoring legacy product.stock)
+    item.currentAdminStock = Math.max(0, item.totalStockAdded - item.totalStockTransferred - item.totalAdminInvoiced);
+    item.totalStockValue = item.currentAdminStock * item.sellingPrice;
+  });
+
+  const adminProducts = Object.values(adminStockMap);
+  const totalAdminStockQty = adminProducts.reduce((sum, p) => sum + p.currentAdminStock, 0);
+  const totalAdminStockValue = adminProducts.reduce((sum, p) => sum + p.totalStockValue, 0);
+
+  return {
+    adminStockMap,
+    adminProducts,
+    totalAdminStockQty,
+    totalAdminStockValue
+  };
+};
+
+/**
  * Employee Product Stock & Sales Reconciliation Calculation Engine
  */
 export const calculateEmployeeStockReconciliation = ({
@@ -902,18 +1049,15 @@ export const calculateEmployeeStockReconciliation = ({
 
   const totalEmployeeStockValue = employeesReconciliation.reduce((sum, e) => sum + e.totalStockValue, 0);
 
-  // Central Available Company Stock & Valuation
-  let totalCentralStockQty = 0;
-  let totalCentralStockValue = 0;
+  // Central Available Company Stock & Valuation (Single Source of Truth: Stock Management records)
+  const adminStockCalc = calculateAdminCentralStock({
+    productsList,
+    stockIssues,
+    invoices
+  });
 
-  if (Array.isArray(productsList)) {
-    productsList.forEach(p => {
-      const centralQty = Number(p.stock ?? p.companyStock ?? 0);
-      const price = Number(p.sellingPrice || p.price || 0);
-      totalCentralStockQty += Math.max(0, centralQty);
-      totalCentralStockValue += Math.max(0, centralQty) * price;
-    });
-  }
+  const totalCentralStockQty = adminStockCalc.totalAdminStockQty;
+  const totalCentralStockValue = adminStockCalc.totalAdminStockValue;
 
   const totalCompanyControlledStockQty = totalCentralStockQty + Math.max(0, overallBalance);
   const totalCompanyStockValue = totalCentralStockValue + totalEmployeeStockValue;

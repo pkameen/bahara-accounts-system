@@ -193,15 +193,7 @@ export default function IssueStockModal({
         }
       });
 
-      // Update central company stock in RTDB
-      Object.keys(netCentralStockChanges).forEach((pId) => {
-        const dbProd = productsList.find((p) => p.id === pId);
-        if (dbProd) {
-          const currentCompanyStock = Number(dbProd.stock ?? dbProd.companyStock ?? 0);
-          const updatedCompanyStock = Math.max(0, currentCompanyStock + netCentralStockChanges[pId]);
-          stockUpdates[`products/${pId}/stock`] = updatedCompanyStock;
-        }
-      });
+      // Stock issue ledger entries will serve as source of truth
 
       const issueData = {
         issueNumber: stockIssueNumber,
