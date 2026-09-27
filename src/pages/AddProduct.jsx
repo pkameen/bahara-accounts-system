@@ -29,7 +29,6 @@ const AddProduct = () => {
     productName: "",
     category: "",
     sellingPrice: "",
-    stock: "",
     description: "",
     status: "Available",
     featured: false,
@@ -82,8 +81,7 @@ const AddProduct = () => {
     if (
       !product.productName ||
       !product.category ||
-      !product.sellingPrice ||
-      !product.stock
+      !product.sellingPrice
     ) {
       toast.error("Please fill all required fields");
       return;
@@ -98,7 +96,6 @@ const AddProduct = () => {
         ...product,
         categoryId: matchedCategory?.id || "",
         sellingPrice: Number(product.sellingPrice),
-        stock: Number(product.stock),
         createdAt: Date.now(),
       });
 
@@ -110,7 +107,6 @@ const AddProduct = () => {
         productName: "",
         category: "",
         sellingPrice: "",
-        stock: "",
         description: "",
         status: "Available",
         featured: false,
@@ -255,20 +251,11 @@ const AddProduct = () => {
             </div>
 
             {/* Selling Price */}
-            <div className="relative group/input">
+            <div className="relative group/input md:col-span-2">
               <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">Selling Price (₹) *</label>
               <div className="relative flex items-center">
                 <FiDollarSign className="absolute left-4 text-gray-400 group-focus-within/input:text-[#D4AF37] transition-colors" />
                 <input type="number" min="0" name="sellingPrice" placeholder="0" value={product.sellingPrice} onChange={handleChange} className="w-full bg-gray-50/80 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4 pl-11" required />
-              </div>
-            </div>
-
-            {/* Stock Quantity */}
-            <div className="relative group/input">
-              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">Stock Quantity *</label>
-              <div className="relative flex items-center">
-                <FiLayers className="absolute left-4 text-gray-400 group-focus-within/input:text-[#D4AF37] transition-colors" />
-                <input type="number" min="0" name="stock" placeholder="0" value={product.stock} onChange={handleChange} className="w-full bg-gray-50/80 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4 pl-11" required />
               </div>
             </div>
 

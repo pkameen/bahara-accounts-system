@@ -14,6 +14,7 @@ import Expenses from './pages/Expenses';
 import Employees from './pages/Employees';
 import Settings from './pages/Settings';
 import Profile from './pages/Profile';
+import EmployeeStock from './pages/EmployeeStock';
 
 function RootRedirect() {
   const { role } = useAuth();
@@ -54,12 +55,14 @@ function App() {
 
                 {/* Shared Routes (Accessible to both Admin & Employee) */}
                 <Route element={<ProtectedRoute allowedRoles={['admin', 'employee']} />}>
+                  <Route path="employee-stock" element={<EmployeeStock />} />
                   <Route path="invoice" element={<Invoice />} />
                   <Route path="expenses" element={<Expenses />} />
                   <Route path="profile" element={<Profile />} />
                 </Route>
               </Route>
             </Route>
+
 
             {/* Fallback Route */}
             <Route path="*" element={<RootRedirect />} />

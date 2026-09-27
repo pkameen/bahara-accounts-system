@@ -17,12 +17,10 @@ import {
   FiChevronRight
 } from "react-icons/fi";
 
-import SalesCard from "../components/SalesCard";
-import ReportTable from "../components/ReportTable";
-import DateFilter from "../components/DateFilter";
 import BySalesmanChart from "../components/BySalesmanChart";
+import ProductSalesChart from "../components/ProductSalesChart";
 import EmployeeAvatar from "../components/EmployeeAvatar";
-import { calculateTopSalesEmployees, filterItemsByDate } from "../utils/calculations";
+import { calculateTopSalesEmployees, filterItemsByDate, calculateEmployeeStockReconciliation } from "../utils/calculations";
 
 
 const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.1 } } };
@@ -34,6 +32,8 @@ const Dashboard = () => {
   const [invoices, setInvoices] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [stockIssues, setStockIssues] = useState([]);
   const [filterType, setFilterType] = useState("month");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -47,6 +47,8 @@ const Dashboard = () => {
     const invoicesRef = ref(db, "invoices");
     const expRef = ref(db, "expenses");
     const empRef = ref(db, "employees");
+    const prodRef = ref(db, "products");
+    const issuesRef = ref(db, "employeeStockIssues");
 
     // Fetch Invoices
     const unsubInv = onValue(invoicesRef, (snapshot) => {
@@ -78,12 +80,36 @@ const Dashboard = () => {
       }
     });
 
+    // Fetch Products
+    const unsubProd = onValue(prodRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setProducts(Object.keys(data).map(key => ({ id: key, ...data[key] })));
+      } else {
+        setProducts([]);
+      }
+    });
+
+    // Fetch Stock Issues
+    const unsubIssues = onValue(issuesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setStockIssues(Object.keys(data).map(key => ({ id: key, ...data[key] })));
+      } else {
+        setStockIssues([]);
+      }
+    });
+
     return () => {
       unsubInv();
       unsubExp();
       unsubEmp();
+      unsubProd();
+      unsubIssues();
     };
   }, []);
+
+
 
   // Centralized Data Calculations
   const {
@@ -220,6 +246,16 @@ const Dashboard = () => {
     }
   };
 
+  // Employee Stock Reconciliation Overview
+  const stockReconData = useMemo(() => {
+    return calculateEmployeeStockReconciliation({
+      stockIssues,
+      invoices: dateFilteredInvoices,
+      employeesList: employees,
+      productsList: products
+    });
+  }, [stockIssues, dateFilteredInvoices, employees, products]);
+
   const cards = [
     {
       title: "Total Turnover",
@@ -235,6 +271,20 @@ const Dashboard = () => {
       color: "text-orange-500",
     },
     {
+      title: "Employee Stock",
+      amount: `${stockReconData.overallIssued} Issued`,
+      icon: <FiPackage />,
+      color: "text-[#D4AF37]",
+      percentage: `Bal: ${stockReconData.overallBalance} units`,
+    },
+    {
+      title: "Stock Reconciliation",
+      amount: `${stockReconData.stockMismatchCount + stockReconData.paymentDiffCount} Mismatches`,
+      icon: <FiUsers />,
+      color: stockReconData.stockMismatchCount > 0 ? "text-red-500" : "text-emerald-500",
+      percentage: `${stockReconData.employeesWithBalanceCount} with stock balance`
+    },
+    {
       title: "Total Items Sold",
       amount: totalItemsSold,
       icon: <FiPackage />,
@@ -246,6 +296,7 @@ const Dashboard = () => {
       color: "text-emerald-500",
       percentage: `${employees.filter(e => e.status === "active").length} Active`
     },
+
     {
       title: "Total Expenses",
       amount: `₹${totalExpenses}`,
@@ -282,10 +333,93 @@ const Dashboard = () => {
         ))}
       </motion.div>
 
+      {/* COMPACT STOCK SUMMARY BANNER */}
+      <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="mb-10 bg-white border border-gray-100 rounded-[30px] p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pb-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <span className="p-2.5 rounded-2xl bg-[#111] text-[#D4AF37] text-lg shadow-sm">
+              <FiPackage />
+            </span>
+            <div>
+              <h3 className="text-lg font-bold text-[#111] font-['Poppins']">Company Inventory & Valuation Summary</h3>
+              <p className="text-xs text-gray-400 font-medium">Central warehouse stock + Staff physical allocation & reconciliation</p>
+            </div>
+          </div>
+
+          <Link to="/employee-stock" className="text-xs font-bold text-[#D4AF37] hover:underline flex items-center gap-1">
+            Open Stock Management <FiChevronRight />
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-center">
+          {/* TOTAL COMPANY STOCK VALUE */}
+          <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100">
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Total Stock Value</span>
+            <span className="text-sm font-bold text-[#D4AF37] font-['Poppins']">
+              ₹{(stockReconData.totalCompanyStockValue || 0).toLocaleString('en-IN')}
+            </span>
+          </div>
+
+          {/* CENTRAL STOCK VALUE */}
+          <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100">
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Central Stock Value</span>
+            <span className="text-sm font-bold text-[#111] font-['Poppins']">
+              ₹{(stockReconData.totalCentralStockValue || 0).toLocaleString('en-IN')}
+            </span>
+          </div>
+
+          {/* EMPLOYEE STOCK VALUE */}
+          <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100">
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Employee Stock Value</span>
+            <span className="text-sm font-bold text-green-600 font-['Poppins']">
+              ₹{(stockReconData.totalEmployeeStockValue || 0).toLocaleString('en-IN')}
+            </span>
+          </div>
+
+          {/* TOTAL UNITS ISSUED */}
+          <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100">
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Total Issued</span>
+            <span className="text-sm font-bold text-[#111] font-['Poppins']">
+              {(stockReconData.overallIssued || 0).toLocaleString('en-IN')} units
+            </span>
+          </div>
+
+          {/* TOTAL UNITS SOLD */}
+          <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100">
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Total Sold</span>
+            <span className="text-sm font-bold text-[#D4AF37] font-['Poppins']">
+              {(stockReconData.overallSold || 0).toLocaleString('en-IN')} units
+            </span>
+          </div>
+
+          {/* TOTAL BALANCE STOCK */}
+          <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100">
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Total Balance</span>
+            <span className={`text-sm font-bold font-['Poppins'] ${stockReconData.overallBalance < 0 ? "text-red-600" : "text-[#111]"}`}>
+              {(stockReconData.overallBalance || 0).toLocaleString('en-IN')} units
+            </span>
+          </div>
+
+          {/* STOCK MISMATCHES */}
+          <div className={`p-3.5 rounded-2xl border ${stockReconData.stockMismatchCount > 0 ? "bg-red-50 border-red-200 text-red-700" : "bg-green-50 border-green-200 text-green-700"}`}>
+            <span className="text-[9px] font-bold uppercase tracking-widest block mb-1">Stock Mismatches</span>
+            <span className="text-sm font-bold font-['Poppins']">
+              {stockReconData.stockMismatchCount > 0 ? `🔴 ${stockReconData.stockMismatchCount}` : "🟢 0 None"}
+            </span>
+          </div>
+        </div>
+      </motion.div>
+
       {/* By Salesman Chart Section */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
         <BySalesmanChart invoices={dateFilteredInvoices} employees={employees} />
       </motion.div>
+
+      {/* Product Sales Performance Section */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
+        <ProductSalesChart invoices={dateFilteredInvoices} productsList={products} />
+      </motion.div>
+
 
 
       {/* Top Selling Product & Top Sales Employees Row */}

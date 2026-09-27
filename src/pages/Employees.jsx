@@ -25,15 +25,18 @@ import {
   FiAlertTriangle,
   FiShield
 } from "react-icons/fi";
-import { calculateTopSalesEmployees } from "../utils/calculations";
+import { calculateTopSalesEmployees, calculateEmployeeStockReconciliation } from "../utils/calculations";
 import { useAuth } from "../context/AuthContext";
 import EmployeeAvatar from "../components/EmployeeAvatar";
+import EmployeeStockDetailModal from "../components/EmployeeStockDetailModal";
 
 export default function Employees() {
   const { role, isAdmin } = useAuth();
   const [employees, setEmployees] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [stockIssues, setStockIssues] = useState([]);
+  const [products, setProducts] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   
   // Modals state
@@ -106,6 +109,8 @@ export default function Employees() {
     const empRef = ref(db, "employees");
     const invRef = ref(db, "invoices");
     const expRef = ref(db, "expenses");
+    const issuesRef = ref(db, "employeeStockIssues");
+    const prodRef = ref(db, "products");
 
     const unsubEmp = onValue(empRef, (snapshot) => {
       const data = snapshot.val();
@@ -134,12 +139,45 @@ export default function Employees() {
       }
     });
 
+    const unsubIssues = onValue(issuesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setStockIssues(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
+      } else {
+        setStockIssues([]);
+      }
+    });
+
+    const unsubProd = onValue(prodRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setProducts(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
+      } else {
+        setProducts([]);
+      }
+    });
+
     return () => {
       unsubEmp();
       unsubInv();
       unsubExp();
+      unsubIssues();
+      unsubProd();
     };
   }, []);
+
+  // Compute full stock reconciliation object for selected view employee
+  const fullSelectedEmployeeRecon = useMemo(() => {
+    if (!selectedEmployee) return null;
+    const res = calculateEmployeeStockReconciliation({
+      stockIssues,
+      invoices,
+      employeesList: employees,
+      productsList: products,
+      targetEmployeeUid: selectedEmployee.uid
+    });
+    return res.employees.length > 0 ? res.employees[0] : null;
+  }, [selectedEmployee, stockIssues, invoices, employees, products]);
 
   // Compute aggregated employee metrics
   const employeePerformanceList = useMemo(() => {
@@ -1096,68 +1134,12 @@ export default function Employees() {
         )}
       </AnimatePresence>
 
-      {/* VIEW EMPLOYEE PERFORMANCE DETAILS MODAL */}
-      <AnimatePresence>
-        {isViewModalOpen && selectedEmployee && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-[32px] p-8 w-full max-w-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
-              <button onClick={() => setIsViewModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-[#111] text-xl">
-                <FiX />
-              </button>
-
-              <div className="flex items-center gap-4 mb-6">
-                <EmployeeAvatar emp={selectedEmployee} className="w-16 h-16" textClassName="text-2xl" roundedClassName="rounded-2xl" />
-                <div>
-                  <h2 className="text-2xl font-bold text-[#111] font-['Poppins']">{selectedEmployee.name}</h2>
-                  <p className="text-xs text-gray-400 font-medium">User ID: <span className="font-mono text-gray-700 font-bold">{selectedEmployee.userId || selectedEmployee.name?.toLowerCase()}</span> • {selectedEmployee.phone}</p>
-                  <span className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${selectedEmployee.status === "active" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                    {selectedEmployee.status}
-                  </span>
-                </div>
-              </div>
-
-              {/* KPI Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Invoices</span>
-                  <span className="text-xl font-bold text-[#111]">{selectedEmployee.invoicesCount}</span>
-                </div>
-                <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Revenue</span>
-                  <span className="text-xl font-bold text-[#D4AF37]">₹{selectedEmployee.revenue}</span>
-                </div>
-                <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Expenses</span>
-                  <span className="text-xl font-bold text-red-500">₹{selectedEmployee.expenses}</span>
-                </div>
-                <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Net Profit</span>
-                  <span className="text-xl font-bold text-green-600">₹{selectedEmployee.profit}</span>
-                </div>
-              </div>
-
-              {/* Product Breakdown */}
-              <div>
-                <h3 className="text-lg font-bold text-[#111] mb-3 font-['Poppins'] flex items-center gap-2">
-                  <FiPackage className="text-[#D4AF37]" /> Products Sold by {selectedEmployee.name}
-                </h3>
-                {Object.keys(selectedEmployee.productBreakdown || {}).length > 0 ? (
-                  <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 space-y-2">
-                    {Object.entries(selectedEmployee.productBreakdown).map(([pName, qty]) => (
-                      <div key={pName} className="flex items-center justify-between text-sm border-b border-gray-200/60 pb-2 last:border-b-0 last:pb-0">
-                        <span className="font-semibold text-gray-700">{pName}</span>
-                        <span className="font-bold text-[#111] bg-white px-3 py-1 rounded-lg border border-gray-200">{qty} pcs</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-400 font-medium bg-gray-50 p-6 rounded-2xl text-center">No sales recorded yet for this employee.</p>
-                )}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* VIEW EMPLOYEE STOCK & RECONCILIATION DETAIL MODAL */}
+      <EmployeeStockDetailModal
+        employee={fullSelectedEmployeeRecon}
+        isOpen={isViewModalOpen}
+        onClose={() => setIsViewModalOpen(false)}
+      />
     </div>
   );
 }

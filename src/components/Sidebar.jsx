@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { 
   FiPieChart, FiShoppingBag, FiPlus, 
-  FiFileText, FiDollarSign, FiSettings, FiUsers, FiUser, FiLogOut, FiX
+  FiFileText, FiDollarSign, FiSettings, FiUsers, FiUser, FiLogOut, FiX, FiLayers
 } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
 import logoIcon from '../assets/bahara.logo.jpg'; 
@@ -10,6 +10,7 @@ import { InstallAppButton } from "./PwaBanner";
 
 const adminNavItems = [
   { name: "Dashboard", path: "/dashboard", icon: <FiPieChart /> },
+  { name: "Stock Management", path: "/employee-stock", icon: <FiLayers /> },
   { name: "Products", path: "/products", icon: <FiShoppingBag /> },
   { name: "Add Product", path: "/add-product", icon: <FiPlus /> },
   { name: "Reports", path: "/reports", icon: <FiFileText /> },
@@ -21,10 +22,12 @@ const adminNavItems = [
 
 const employeeNavItems = [
   { name: "Dashboard", path: "/employee-dashboard", icon: <FiPieChart /> },
+  { name: "My Stock", path: "/employee-stock", icon: <FiLayers /> },
   { name: "Create Invoice", path: "/invoice", icon: <FiFileText /> },
   { name: "My Expenses", path: "/expenses", icon: <FiDollarSign /> },
   { name: "My Profile", path: "/profile", icon: <FiUser /> },
 ];
+
 
 export default function Sidebar({ isOpen, setIsOpen }) {
   const { role, logout } = useAuth();

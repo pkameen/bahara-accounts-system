@@ -1,7 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
 import { db } from "../firebase";
 import { ref, onValue, update } from "firebase/database";
+import { useAuth } from "../context/AuthContext";
 import EmployeeAvatar from "../components/EmployeeAvatar";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 import {
   isSameDay,
   isSameWeek,
@@ -13,7 +16,7 @@ import {
   startOfDay,
   endOfDay
 } from "date-fns";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
 import {
@@ -25,25 +28,39 @@ import {
   FiAlertTriangle,
   FiChevronDown,
   FiClock,
-  FiFileText
+  FiFileText,
+  FiPrinter,
+  FiDownload,
+  FiPieChart,
+  FiUser,
+  FiArrowRight,
+  FiX,
+  FiFilter
 } from "react-icons/fi";
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ReportTable from "../components/ReportTable";
 import DateFilter from "../components/DateFilter";
 import SalesCard from "../components/SalesCard";
 import BySalesmanChart from "../components/BySalesmanChart";
 import ExpenseByCategoryChart from "../components/ExpenseByCategoryChart";
 import ExpenseBySalesmanChart from "../components/ExpenseBySalesmanChart";
-import { calculateEmployeePerformance } from "../utils/calculations";
+import ProductSalesChart from "../components/ProductSalesChart";
+import {
+  calculateEmployeePerformance,
+  calculateEmployeeStockReconciliation,
+  calculatePeriodEmployeeStockReport
+} from "../utils/calculations";
 
-
+const CHART_COLORS = ['#D4AF37', '#111111', '#10B981', '#F59E0B', '#6366F1', '#EC4899', '#8B5CF6', '#3B82F6'];
 
 const Reports = () => {
+  const { isAdmin } = useAuth();
   const [sales, setSales] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [products, setProducts] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [stockIssues, setStockIssues] = useState([]);
   const [filterType, setFilterType] = useState("today");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -52,6 +69,12 @@ const Reports = () => {
   const [selectedEmployeeUid, setSelectedEmployeeUid] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("all");
 
+  // Admin Employee Sales & Stock Report Specific Filters & State
+  const [reportFilterType, setReportFilterType] = useState("month");
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
+  const [selectedDetailEmployee, setSelectedDetailEmployee] = useState(null);
+  const [selectedDrilldownProduct, setSelectedDrilldownProduct] = useState(null);
 
   const navigate = useNavigate();
 
@@ -62,6 +85,7 @@ const Reports = () => {
     const prodRef = ref(db, "products");
     const empRef = ref(db, "employees");
     const catRef = ref(db, "expenseCategories");
+    const stockIssuesRef = ref(db, "employeeStockIssues");
 
     onValue(salesRef, (snapshot) => {
       const data = snapshot.val();
@@ -107,10 +131,38 @@ const Reports = () => {
         setCategories([]);
       }
     });
+
+    onValue(stockIssuesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setStockIssues(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
+      } else {
+        setStockIssues([]);
+      }
+    });
   }, []);
 
+  // Compute Dynamic Admin Employee Sales & Stock Report
+  const adminStockReport = useMemo(() => {
+    return calculatePeriodEmployeeStockReport({
+      stockIssues,
+      invoices: sales,
+      expenses,
+      employeesList: employees,
+      productsList: products,
+      filterType: reportFilterType,
+      startDate: reportStartDate,
+      endDate: reportEndDate
+    });
+  }, [stockIssues, sales, expenses, employees, products, reportFilterType, reportStartDate, reportEndDate]);
 
-  // Centralized Filter and Calculation Logic
+  // Sync currently viewed detail employee when report recalculates
+  const currentDetailEmployee = useMemo(() => {
+    if (!selectedDetailEmployee) return null;
+    return adminStockReport.employeesReport.find(e => e.uid === selectedDetailEmployee.uid) || selectedDetailEmployee;
+  }, [selectedDetailEmployee, adminStockReport]);
+
+  // Centralized Filter and Calculation Logic for General Analytics
   const {
     filteredSales,
     filteredExpenses,
@@ -125,14 +177,12 @@ const Reports = () => {
     chartData,
     topProducts
   } = useMemo(() => {
-
     const now = new Date();
     let currentSales = [];
     let prevSales = [];
     let currentExp = [];
     let prevExp = [];
 
-    // 1. Separate Current and Previous Period Data
     const filterData = (dataList, isExpense = false) => {
       dataList.forEach((item) => {
         let dateVal = item.createdAt || Date.now();
@@ -161,7 +211,7 @@ const Reports = () => {
           const end = endOfDay(new Date(endDate));
           isCurrent = isWithinInterval(d, { start, end });
         } else if (filterType === "custom") {
-          isCurrent = true; // Fallback if dates not picked
+          isCurrent = true;
         }
 
         if (!isExpense && paymentFilter !== "all") {
@@ -193,7 +243,6 @@ const Reports = () => {
     filterData(sales, false);
     filterData(expenses, true);
 
-    // 2. Compute Core Metrics
     const getRevenue = (arr) => arr.reduce((sum, s) => sum + (Number(s.totalAmount) || 0), 0);
     const getExp = (arr) => arr.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
@@ -216,9 +265,7 @@ const Reports = () => {
     const productMap = {};
     const dateGroupMap = {};
 
-    // 3. Process Product Quantities and Chart Data
     currentSales.forEach((sale) => {
-      // Chart grouping
       let saleDateVal = sale.createdAt || 0;
       if (sale.invoiceDate) {
         const [year, month, day] = sale.invoiceDate.split('-');
@@ -235,13 +282,10 @@ const Reports = () => {
         pCount += 1;
       }
 
-      // Product iterations
       (sale.products || []).forEach(p => {
         const qty = Number(p.quantity) || 0;
-
         items += qty;
 
-        // Top Products Aggregation
         if (p.productId || p.productName) {
           const pId = p.productId || p.productName;
           if (!productMap[pId]) {
@@ -253,13 +297,11 @@ const Reports = () => {
       });
     });
 
-    // Sort and attach images to top 3 products
     const top3 = Object.values(productMap).sort((a, b) => b.qty - a.qty).slice(0, 3).map(tp => {
       const dbP = products.find(prod => prod.id === tp.id);
       return { ...tp, image: dbP?.image || null };
     });
 
-    // Sort chart data chronologically
     const chartArr = Object.values(dateGroupMap).sort((a, b) => a.rawDate - b.rawDate);
 
     return {
@@ -278,11 +320,22 @@ const Reports = () => {
     };
   }, [sales, expenses, products, filterType, startDate, endDate, paymentFilter, selectedEmployeeUid]);
 
-  // Unified Employee Performance Calculation Matrix
+  // Unified Employee Performance Matrix
   const employeePerformanceList = useMemo(() => {
     return calculateEmployeePerformance(filteredSales, filteredExpenses, employees);
   }, [filteredSales, filteredExpenses, employees]);
 
+  // Employee Stock & Sales Reconciliation Matrix
+  const stockReconciliationData = useMemo(() => {
+    return calculateEmployeeStockReconciliation({
+      stockIssues,
+      invoices: filteredSales,
+      employeesList: employees,
+      productsList: products,
+      filterType: "all",
+      targetEmployeeUid: selectedEmployeeUid || null
+    });
+  }, [stockIssues, filteredSales, employees, products, selectedEmployeeUid]);
 
   // Advanced Product Sales Analytics
   const productAnalytics = useMemo(() => {
@@ -362,7 +415,6 @@ const Reports = () => {
       const updates = {};
       updates[`invoices/${deletingInvoiceId}`] = null;
 
-      // Return stock safely before destroying the invoice
       if (invToDelete && invToDelete.products) {
         invToDelete.products.forEach(p => {
           if (p.productId) {
@@ -390,6 +442,102 @@ const Reports = () => {
     } catch {
       toast.error("Failed to update status");
     }
+  };
+
+  // Export PDF Handler
+  const handleDownloadPDF = async (elementId, filename = "report.pdf") => {
+    const input = document.getElementById(elementId);
+    if (!input) return;
+    try {
+      const toastId = toast.loading("Generating PDF report...");
+      const canvas = await html2canvas(input, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const imgWidth = 210;
+      const pageHeight = 297;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+      pdf.save(filename);
+      toast.success("PDF Downloaded successfully!", { id: toastId });
+    } catch (err) {
+      console.error("PDF generation failed", err);
+      toast.error("Failed to generate PDF");
+    }
+  };
+
+  // Export CSV Handler
+  const handleExportCSV = (reportObj, periodLabel = "Period") => {
+    if (!reportObj || !reportObj.employeesReport) return;
+    let csvStr = "data:text/csv;charset=utf-8,";
+    csvStr += "Employee Name,Product Name,Opening Stock,Stock Issued,Total Available,Sold Quantity,Remaining Stock,Sales %,Revenue (INR),Expenses (INR),Net Balance (INR)\n";
+
+    reportObj.employeesReport.forEach(emp => {
+      if (emp.productsList && emp.productsList.length > 0) {
+        emp.productsList.forEach(p => {
+          csvStr += `"${emp.name}","${p.productName}",${p.openingStock},${p.issuedDuringPeriod},${p.totalAvailable},${p.soldDuringPeriod},${p.remainingStock},"${p.salesPercentageFormatted}",${p.revenue},${emp.expenses},${emp.netBalance}\n`;
+        });
+      } else {
+        csvStr += `"${emp.name}","N/A",${emp.openingStock},${emp.issuedDuringPeriod},${emp.totalAvailable},${emp.soldDuringPeriod},${emp.remainingStock},"${emp.salesPercentageFormatted}",${emp.revenue},${emp.expenses},${emp.netBalance}\n`;
+      }
+    });
+
+    const encodedUri = encodeURI(csvStr);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Employee_Sales_And_Stock_Report_${periodLabel}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("CSV Report Downloaded!");
+  };
+
+  // Print Handler
+  const handlePrint = (elementId) => {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    const printWindow = window.open("", "_blank");
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Bahara Accounts - Employee Sales & Stock Report</title>
+          <style>
+            body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; color: #111; }
+            h1, h2, h3 { margin: 0 0 10px 0; }
+            .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; background: #eee; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; margin-bottom: 24px; }
+            th, td { border: 1px solid #e5e7eb; padding: 10px; text-align: left; font-size: 12px; }
+            th { background: #f9fafb; font-weight: bold; color: #4b5563; }
+            .text-right { text-align: right; }
+            .text-center { text-align: center; }
+            .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+            .card { border: 1px solid #e5e7eb; padding: 12px; border-radius: 8px; background: #fafafa; }
+            .card-title { font-size: 10px; font-weight: bold; color: #6b7280; text-transform: uppercase; }
+            .card-val { font-size: 18px; font-weight: bold; margin-top: 4px; }
+          </style>
+        </head>
+        <body>
+          ${el.innerHTML}
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
   };
 
   return (
@@ -452,6 +600,637 @@ const Reports = () => {
         </div>
       </motion.div>
 
+      {/* ========================================================================= */}
+      {/* 1. DEDICATED ADMIN SECTION: EMPLOYEE SALES & STOCK REPORT                 */}
+      {/* ========================================================================= */}
+      {isAdmin && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white premium-shadow border border-gray-100 rounded-[30px] p-6 sm:p-8 mb-10 overflow-hidden"
+          id="admin-sales-stock-report-main"
+        >
+          {/* Section Header */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-gray-100">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="bg-[#D4AF37]/20 text-[#D4AF37] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                  Admin Analytics
+                </span>
+                <span className="text-xs text-gray-400 font-semibold">• Live Continuous Ledger</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-bold text-[#111] font-['Poppins'] tracking-tight">
+                Employee Sales & Stock Report
+              </h2>
+              <p className="text-xs sm:text-sm text-gray-500 font-medium mt-1">
+                Comprehensive breakdown of employee product allocations, opening stock, sales, remaining inventory & revenue balances.
+              </p>
+            </div>
+
+            {/* Filter Buttons & Export Actions */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Date Period Filter Pills */}
+              <div className="bg-gray-50 p-1.5 rounded-2xl border border-gray-200 flex items-center gap-1">
+                {[
+                  { id: "today", label: "Today" },
+                  { id: "week", label: "This Week" },
+                  { id: "month", label: "This Month" },
+                  { id: "custom", label: "Custom Range" }
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setReportFilterType(f.id)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                      reportFilterType === f.id
+                        ? "bg-[#111] text-[#D4AF37] shadow-md"
+                        : "text-gray-500 hover:text-[#111] hover:bg-gray-200/60"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Action Buttons: CSV, PDF, Print */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleExportCSV(adminStockReport, reportFilterType)}
+                  className="bg-gray-100 hover:bg-gray-200 text-[#111] px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                  title="Export CSV"
+                >
+                  <FiDownload /> CSV
+                </button>
+                <button
+                  onClick={() => handleDownloadPDF("admin-sales-stock-report-main", `Employee_Sales_Stock_${reportFilterType}.pdf`)}
+                  className="bg-gray-100 hover:bg-gray-200 text-[#111] px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                  title="Download PDF"
+                >
+                  <FiDownload /> PDF
+                </button>
+                <button
+                  onClick={() => handlePrint("admin-sales-stock-report-main")}
+                  className="bg-[#111] hover:bg-black text-[#D4AF37] px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+                  title="Print Report"
+                >
+                  <FiPrinter /> Print
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Custom Date Range Selector Inputs */}
+          {reportFilterType === "custom" && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              className="py-4 border-b border-gray-100 flex flex-wrap items-center gap-4 bg-amber-50/50 p-4 rounded-2xl mt-4"
+            >
+              <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                <FiFilter /> Select Date Range:
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-gray-600">From:</label>
+                <input
+                  type="date"
+                  value={reportStartDate}
+                  onChange={(e) => setReportStartDate(e.target.value)}
+                  className="bg-white border border-gray-300 rounded-xl px-3 py-1.5 text-xs font-semibold text-[#111] outline-none focus:border-[#D4AF37]"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-gray-600">To:</label>
+                <input
+                  type="date"
+                  value={reportEndDate}
+                  onChange={(e) => setReportEndDate(e.target.value)}
+                  className="bg-white border border-gray-300 rounded-xl px-3 py-1.5 text-xs font-semibold text-[#111] outline-none focus:border-[#D4AF37]"
+                />
+              </div>
+            </motion.div>
+          )}
+
+          {/* Period Summary Metric Banner */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 my-6">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Opening Stock</span>
+              <span className="text-lg font-bold text-[#111] font-['Poppins']">{adminStockReport.summary.openingStock}</span>
+            </div>
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Stock Issued</span>
+              <span className="text-lg font-bold text-blue-600 font-['Poppins']">{adminStockReport.summary.stockIssued}</span>
+            </div>
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Available</span>
+              <span className="text-lg font-bold text-[#111] font-['Poppins']">{adminStockReport.summary.totalAvailable}</span>
+            </div>
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Sold</span>
+              <span className="text-lg font-bold text-[#D4AF37] font-['Poppins']">{adminStockReport.summary.totalSold}</span>
+            </div>
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Remaining Stock</span>
+              <span className="text-lg font-bold text-amber-700 font-['Poppins']">{adminStockReport.summary.remainingStock}</span>
+            </div>
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Revenue</span>
+              <span className="text-lg font-bold text-green-600 font-['Poppins']">₹{adminStockReport.summary.totalRevenue.toLocaleString('en-IN')}</span>
+            </div>
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Expenses</span>
+              <span className="text-lg font-bold text-red-500 font-['Poppins']">₹{adminStockReport.summary.totalExpenses.toLocaleString('en-IN')}</span>
+            </div>
+            <div className="bg-[#111] text-[#D4AF37] rounded-2xl p-3.5 text-center shadow-md">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Net Balance</span>
+              <span className="text-lg font-bold font-['Poppins']">₹{adminStockReport.summary.netBalance.toLocaleString('en-IN')}</span>
+            </div>
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto border border-gray-100 rounded-2xl">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                <tr>
+                  <th className="p-4">Employee</th>
+                  <th className="p-4 text-right">Products Issued</th>
+                  <th className="p-4 text-right">Products Sold</th>
+                  <th className="p-4 text-right">Remaining Stock</th>
+                  <th className="p-4 text-right">Revenue</th>
+                  <th className="p-4 text-center">Sales %</th>
+                  <th className="p-4 text-right">Expenses</th>
+                  <th className="p-4 text-right">Net Balance</th>
+                  <th className="p-4 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 text-xs font-semibold text-[#111]">
+                {adminStockReport.employeesReport.length > 0 ? (
+                  adminStockReport.employeesReport.map((emp) => (
+                    <tr
+                      key={emp.uid}
+                      onClick={() => setSelectedDetailEmployee(emp)}
+                      className="hover:bg-amber-50/40 transition-colors cursor-pointer group"
+                    >
+                      <td className="p-4 font-bold font-['Poppins']">
+                        <div className="flex items-center gap-3">
+                          <EmployeeAvatar emp={emp} className="w-9 h-9" textClassName="text-xs" />
+                          <div>
+                            <span className="text-sm font-bold text-[#111] group-hover:text-[#D4AF37] transition-colors">
+                              {emp.name}
+                            </span>
+                            <span className="text-[10px] text-gray-400 font-normal block">
+                              {emp.productsList.length} product line(s)
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4 text-right text-gray-700 font-bold">{emp.issuedDuringPeriod}</td>
+                      <td className="p-4 text-right text-[#D4AF37] font-bold">{emp.soldDuringPeriod}</td>
+                      <td className="p-4 text-right text-amber-800 font-bold">{emp.remainingStock}</td>
+                      <td className="p-4 text-right text-green-600 font-bold">₹{emp.revenue.toLocaleString('en-IN')}</td>
+                      <td className="p-4 text-center">
+                        <div className="flex flex-col items-center">
+                          <span className="font-bold text-xs text-[#111]">{emp.salesPercentageFormatted}</span>
+                          <div className="w-16 bg-gray-200 h-1.5 rounded-full overflow-hidden mt-1">
+                            <div
+                              className="bg-[#D4AF37] h-full rounded-full"
+                              style={{ width: `${Math.min(100, emp.salesPercentage)}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4 text-right text-red-500 font-bold">₹{emp.expenses.toLocaleString('en-IN')}</td>
+                      <td className="p-4 text-right font-bold">
+                        <span className={`px-2.5 py-1 rounded-full text-xs ${emp.netBalance >= 0 ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
+                          ₹{emp.netBalance.toLocaleString('en-IN')}
+                        </span>
+                      </td>
+                      <td className="p-4 text-center">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedDetailEmployee(emp);
+                          }}
+                          className="bg-[#111] text-[#D4AF37] hover:bg-black text-xs font-bold px-3 py-1.5 rounded-xl transition-all shadow-sm flex items-center gap-1 mx-auto"
+                        >
+                          Details <FiArrowRight className="text-xs" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-gray-400 font-medium">
+                      No active employee sales or stock records found for this period.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Card Layout View */}
+          <div className="md:hidden grid grid-cols-1 gap-4">
+            {adminStockReport.employeesReport.length > 0 ? (
+              adminStockReport.employeesReport.map((emp) => (
+                <div
+                  key={emp.uid}
+                  onClick={() => setSelectedDetailEmployee(emp)}
+                  className="bg-gray-50 border border-gray-200/80 rounded-2xl p-4 cursor-pointer hover:border-[#D4AF37] transition-all"
+                >
+                  <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-200/60">
+                    <div className="flex items-center gap-3">
+                      <EmployeeAvatar emp={emp} className="w-10 h-10" textClassName="text-sm" />
+                      <div>
+                        <h4 className="font-bold text-sm text-[#111]">{emp.name}</h4>
+                        <span className="text-[10px] text-gray-500">{emp.productsList.length} products assigned</span>
+                      </div>
+                    </div>
+                    <span className="bg-[#111] text-[#D4AF37] px-2.5 py-1 rounded-lg text-xs font-bold">
+                      {emp.salesPercentageFormatted}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                    <div className="bg-white p-2 rounded-xl border border-gray-100">
+                      <span className="text-[9px] text-gray-400 font-bold uppercase block">Issued</span>
+                      <span className="text-xs font-bold text-gray-800">{emp.issuedDuringPeriod}</span>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-gray-100">
+                      <span className="text-[9px] text-gray-400 font-bold uppercase block">Sold</span>
+                      <span className="text-xs font-bold text-[#D4AF37]">{emp.soldDuringPeriod}</span>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-gray-100">
+                      <span className="text-[9px] text-gray-400 font-bold uppercase block">Remaining</span>
+                      <span className="text-xs font-bold text-amber-800">{emp.remainingStock}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 text-xs">
+                    <div>
+                      <span className="text-[10px] text-gray-400 block font-bold">Revenue</span>
+                      <span className="font-bold text-green-600">₹{emp.revenue.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-400 block font-bold">Expenses</span>
+                      <span className="font-bold text-red-500">₹{emp.expenses.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-400 block font-bold">Net Balance</span>
+                      <span className="font-bold text-[#111]">₹{emp.netBalance.toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="py-8 text-center text-gray-400 font-medium">
+                No active employee records for this period.
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 2. DETAILED EMPLOYEE REPORT MODAL / DRAWER                               */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {currentDetailEmployee && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-[30px] w-full max-w-5xl max-h-[90vh] overflow-y-auto p-6 sm:p-8 shadow-2xl relative border border-gray-100"
+              id="detailed-employee-report-modal"
+            >
+              {/* Modal Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-gray-100">
+                <div className="flex items-center gap-4">
+                  <EmployeeAvatar emp={currentDetailEmployee} className="w-14 h-14" textClassName="text-xl" />
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#D4AF37] bg-black px-2.5 py-0.5 rounded-full">
+                      Detailed Employee Report
+                    </span>
+                    <h2 className="text-2xl sm:text-3xl font-bold text-[#111] font-['Poppins'] mt-1">
+                      {currentDetailEmployee.name} — Sales & Stock Report
+                    </h2>
+                    <p className="text-xs text-gray-500 font-medium">
+                      Period Filter: <span className="font-bold text-[#111] uppercase">{reportFilterType}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleExportCSV({ employeesReport: [currentDetailEmployee] }, currentDetailEmployee.name)}
+                    className="bg-gray-100 hover:bg-gray-200 text-[#111] px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1"
+                  >
+                    <FiDownload /> CSV
+                  </button>
+                  <button
+                    onClick={() => handleDownloadPDF("detailed-employee-report-modal", `${currentDetailEmployee.name}_Sales_Report.pdf`)}
+                    className="bg-gray-100 hover:bg-gray-200 text-[#111] px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1"
+                  >
+                    <FiDownload /> PDF
+                  </button>
+                  <button
+                    onClick={() => handlePrint("detailed-employee-report-modal")}
+                    className="bg-[#111] hover:bg-black text-[#D4AF37] px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1"
+                  >
+                    <FiPrinter /> Print
+                  </button>
+                  <button
+                    onClick={() => setSelectedDetailEmployee(null)}
+                    className="w-10 h-10 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 transition-colors ml-2"
+                  >
+                    <FiX className="text-xl" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Summary Cards Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 my-6">
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Opening Stock</span>
+                  <span className="text-base font-bold text-[#111]">{currentDetailEmployee.openingStock}</span>
+                </div>
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Stock Issued</span>
+                  <span className="text-base font-bold text-blue-600">{currentDetailEmployee.issuedDuringPeriod}</span>
+                </div>
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Available</span>
+                  <span className="text-base font-bold text-[#111]">{currentDetailEmployee.totalAvailable}</span>
+                </div>
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Sold</span>
+                  <span className="text-base font-bold text-[#D4AF37]">{currentDetailEmployee.soldDuringPeriod}</span>
+                </div>
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Remaining Stock</span>
+                  <span className="text-base font-bold text-amber-800">{currentDetailEmployee.remainingStock}</span>
+                </div>
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Revenue</span>
+                  <span className="text-base font-bold text-green-600">₹{currentDetailEmployee.revenue.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Expenses</span>
+                  <span className="text-base font-bold text-red-500">₹{currentDetailEmployee.expenses.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="bg-[#111] text-[#D4AF37] rounded-2xl p-3 text-center">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Net Balance</span>
+                  <span className="text-base font-bold">₹{currentDetailEmployee.netBalance.toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+
+              {/* Product Sales Graph / Visual Distribution */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 my-6">
+                <div className="lg:col-span-8 bg-gray-50/70 border border-gray-100 rounded-3xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold text-[#111] font-['Poppins'] flex items-center gap-2">
+                      <FiPieChart className="text-[#D4AF37]" /> Product Sales Distribution
+                    </h3>
+                    <span className="text-xs text-gray-400 font-semibold">Unit Sales Share</span>
+                  </div>
+
+                  {currentDetailEmployee.productsList.length > 0 && currentDetailEmployee.soldDuringPeriod > 0 ? (
+                    <div className="h-[240px] w-full flex items-center">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={currentDetailEmployee.productsList.filter(p => p.soldDuringPeriod > 0)}
+                            dataKey="soldDuringPeriod"
+                            nameKey="productName"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={90}
+                            paddingAngle={5}
+                          >
+                            {currentDetailEmployee.productsList.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(val, name, props) => [`${val} pcs (${props.payload.salesPercentageFormatted})`, props.payload.productName]}
+                            contentStyle={{ borderRadius: '14px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="h-[200px] flex items-center justify-center text-gray-400 text-xs font-semibold">
+                      No product sales recorded yet for this period.
+                    </div>
+                  )}
+                </div>
+
+                {/* Highest Sold Product Summary Card */}
+                <div className="lg:col-span-4 bg-[#111] text-white rounded-3xl p-6 flex flex-col justify-between relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-[#D4AF37] blur-[70px] opacity-20 rounded-full"></div>
+                  <div>
+                    <span className="bg-[#D4AF37] text-[#111] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                      Highest Sold Product
+                    </span>
+                    <h4 className="text-xl font-bold font-['Poppins'] mt-4">
+                      {currentDetailEmployee.productsList.length > 0 && currentDetailEmployee.productsList[0].soldDuringPeriod > 0
+                        ? currentDetailEmployee.productsList[0].productName
+                        : "None"}
+                    </h4>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {currentDetailEmployee.productsList.length > 0 && currentDetailEmployee.productsList[0].soldDuringPeriod > 0
+                        ? `${currentDetailEmployee.productsList[0].soldDuringPeriod} pcs sold • ₹${currentDetailEmployee.productsList[0].revenue.toLocaleString('en-IN')}`
+                        : "No sales logged for this employee."}
+                    </p>
+                  </div>
+                  <div className="pt-6 border-t border-white/10 mt-6 flex items-center justify-between text-xs">
+                    <span className="text-gray-400">Overall Sales %:</span>
+                    <span className="text-[#D4AF37] font-bold text-lg font-['Poppins']">
+                      {currentDetailEmployee.salesPercentageFormatted}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Product Breakdown Table */}
+              <div className="border border-gray-100 rounded-2xl overflow-hidden mt-6">
+                <div className="bg-gray-50 px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <h3 className="font-bold text-[#111] text-sm font-['Poppins']">Assigned Product Stock & Sales Matrix</h3>
+                  <span className="text-xs text-gray-400 font-medium">Click any row for product drill-down</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                      <tr>
+                        <th className="p-4">Product</th>
+                        <th className="p-4 text-right">Opening Stock</th>
+                        <th className="p-4 text-right">Stock Issued</th>
+                        <th className="p-4 text-right">Total Available</th>
+                        <th className="p-4 text-right">Sold</th>
+                        <th className="p-4 text-right">Remaining</th>
+                        <th className="p-4 text-center">Sales %</th>
+                        <th className="p-4 text-right">Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 text-xs font-semibold text-[#111]">
+                      {currentDetailEmployee.productsList.length > 0 ? (
+                        currentDetailEmployee.productsList.map((prod) => (
+                          <tr
+                            key={prod.productId}
+                            onClick={() => setSelectedDrilldownProduct(prod)}
+                            className="hover:bg-amber-50/50 transition-colors cursor-pointer"
+                          >
+                            <td className="p-4 font-bold font-['Poppins']">
+                              <div className="flex items-center gap-3">
+                                {prod.image ? (
+                                  <img src={prod.image} alt={prod.productName} className="w-8 h-8 rounded-xl object-cover border border-gray-200" />
+                                ) : (
+                                  <div className="w-8 h-8 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400">
+                                    <FiPackage />
+                                  </div>
+                                )}
+                                <div>
+                                  <span className="text-sm font-bold text-[#111]">{prod.productName}</span>
+                                  <span className="text-[10px] text-gray-400 font-normal block">{prod.category}</span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-4 text-right text-gray-700 font-bold">{prod.openingStock}</td>
+                            <td className="p-4 text-right text-blue-600 font-bold">{prod.issuedDuringPeriod}</td>
+                            <td className="p-4 text-right text-gray-900 font-bold">{prod.totalAvailable}</td>
+                            <td className="p-4 text-right text-[#D4AF37] font-bold">{prod.soldDuringPeriod}</td>
+                            <td className="p-4 text-right text-amber-800 font-bold">{prod.remainingStock}</td>
+                            <td className="p-4 text-center">
+                              <div className="flex flex-col items-center">
+                                <span className="font-bold text-xs text-[#111]">{prod.salesPercentageFormatted}</span>
+                                <div className="w-14 bg-gray-200 h-1.5 rounded-full overflow-hidden mt-1">
+                                  <div
+                                    className="bg-[#D4AF37] h-full rounded-full"
+                                    style={{ width: `${Math.min(100, prod.salesPercentage)}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-4 text-right text-green-600 font-bold">₹{prod.revenue.toLocaleString('en-IN')}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={8} className="py-12 text-center text-gray-400 font-medium">
+                            {currentDetailEmployee.totalAvailable > 0
+                              ? "Stock available — no sales recorded yet."
+                              : "No sales recorded for this period."}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* 3. PRODUCT DRILL-DOWN MODAL: EMPLOYEE → PRODUCT                          */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {selectedDrilldownProduct && currentDetailEmployee && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-[30px] w-full max-w-lg p-6 sm:p-8 shadow-2xl relative border border-gray-100"
+            >
+              <button
+                onClick={() => setSelectedDrilldownProduct(null)}
+                className="absolute top-6 right-6 w-9 h-9 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 transition-colors"
+              >
+                <FiX className="text-lg" />
+              </button>
+
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-bold text-gray-400">{currentDetailEmployee.name}</span>
+                <span className="text-xs text-gray-300">→</span>
+                <span className="text-xs font-bold text-[#D4AF37] uppercase">Product Analytics</span>
+              </div>
+
+              <div className="flex items-center gap-4 my-4 pb-4 border-b border-gray-100">
+                {selectedDrilldownProduct.image ? (
+                  <img src={selectedDrilldownProduct.image} alt={selectedDrilldownProduct.productName} className="w-16 h-16 rounded-2xl object-cover border border-gray-200 shadow-sm" />
+                ) : (
+                  <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center text-gray-400 text-2xl">
+                    <FiPackage />
+                  </div>
+                )}
+                <div>
+                  <h3 className="text-2xl font-bold text-[#111] font-['Poppins']">{selectedDrilldownProduct.productName}</h3>
+                  <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2.5 py-0.5 rounded-full inline-block mt-1">
+                    {selectedDrilldownProduct.category}
+                  </span>
+                </div>
+              </div>
+
+              {/* Statistics Grid */}
+              <div className="grid grid-cols-2 gap-3 text-xs mb-6">
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-400 uppercase font-bold block">Opening Stock</span>
+                  <span className="text-sm font-bold text-[#111]">{selectedDrilldownProduct.openingStock}</span>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-400 uppercase font-bold block">Stock Issued</span>
+                  <span className="text-sm font-bold text-blue-600">{selectedDrilldownProduct.issuedDuringPeriod}</span>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-400 uppercase font-bold block">Total Available</span>
+                  <span className="text-sm font-bold text-[#111]">{selectedDrilldownProduct.totalAvailable}</span>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-400 uppercase font-bold block">Sold Quantity</span>
+                  <span className="text-sm font-bold text-[#D4AF37]">{selectedDrilldownProduct.soldDuringPeriod}</span>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-400 uppercase font-bold block">Remaining Stock</span>
+                  <span className="text-sm font-bold text-amber-800">{selectedDrilldownProduct.remainingStock}</span>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-400 uppercase font-bold block">Sales Percentage</span>
+                  <span className="text-sm font-bold text-green-600">{selectedDrilldownProduct.salesPercentageFormatted}</span>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-400 uppercase font-bold block">Avg Selling Rate</span>
+                  <span className="text-sm font-bold text-[#111]">₹{selectedDrilldownProduct.avgSellingRate}</span>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-400 uppercase font-bold block">Invoice Count</span>
+                  <span className="text-sm font-bold text-[#111]">{selectedDrilldownProduct.invoiceCount} bill(s)</span>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-400 uppercase font-bold block">First Sale Date</span>
+                  <span className="text-xs font-bold text-gray-700">
+                    {selectedDrilldownProduct.firstSaleDate ? new Date(selectedDrilldownProduct.firstSaleDate).toLocaleDateString() : "N/A"}
+                  </span>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                  <span className="text-[10px] text-gray-400 uppercase font-bold block">Last Sale Date</span>
+                  <span className="text-xs font-bold text-gray-700">
+                    {selectedDrilldownProduct.lastSaleDate ? new Date(selectedDrilldownProduct.lastSaleDate).toLocaleDateString() : "N/A"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-[#111] text-[#D4AF37] p-4 rounded-2xl text-center">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">Total Product Revenue</span>
+                <span className="text-2xl font-bold font-['Poppins']">₹{selectedDrilldownProduct.revenue.toLocaleString('en-IN')}</span>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Comprehensive Reports Analytics */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="space-y-8 mb-10">
 
@@ -483,10 +1262,13 @@ const Reports = () => {
         {/* 3. Expense by Category Donut Chart */}
         <ExpenseByCategoryChart expenses={filteredExpenses} categoriesList={categories} />
 
-        {/* 4. Expense by Salesman / Creator Donut Chart */}
+        {/* 4. Product Sales Performance Donut Chart */}
+        <ProductSalesChart invoices={filteredSales} productsList={products} />
+
+        {/* 5. Expense by Salesman / Creator Donut Chart */}
         <ExpenseBySalesmanChart expenses={filteredExpenses} employees={employees} />
 
-        {/* 5. Unified Employee Performance Matrix Table */}
+        {/* 6. Unified Employee Performance Matrix Table */}
         <div className="bg-white premium-shadow border border-gray-100 rounded-[30px] overflow-hidden">
           <div className="p-6 sm:p-8 border-b border-gray-100">
             <h3 className="text-xl font-bold text-[#111] font-['Poppins']">Employee & Salesman Performance</h3>
@@ -552,9 +1334,96 @@ const Reports = () => {
           </div>
         </div>
 
+        {/* 7. Employee Stock & Sales Reconciliation Summary Table */}
+        <div className="bg-white premium-shadow border border-gray-100 rounded-[30px] overflow-hidden">
+          <div className="p-6 sm:p-8 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-bold text-[#111] font-['Poppins']">Employee Stock & Reconciliation Summary</h3>
+              <p className="text-xs text-gray-400 mt-1 font-medium">
+                Continuous stock ledger tracking issued qty, sold qty, balance, stock value, sales value & utilization % per employee
+              </p>
+            </div>
+            <div className="flex items-center gap-2 bg-gray-50 px-3.5 py-1.5 rounded-full border border-gray-100 text-xs font-bold text-gray-600">
+              <FiPackage className="text-[#D4AF37]" />
+              <span>Issued: {stockReconciliationData.overallIssued} | Sold: {stockReconciliationData.overallSold} | Balance: {stockReconciliationData.overallBalance} | Util: {stockReconciliationData.overallStockUtilizationFormatted}</span>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                <tr>
+                  <th className="p-4 sm:p-5">Employee Name</th>
+                  <th className="p-4 sm:p-5 text-right">Issued Qty</th>
+                  <th className="p-4 sm:p-5 text-right">Sold Qty</th>
+                  <th className="p-4 sm:p-5 text-right">Balance Qty</th>
+                  <th className="p-4 sm:p-5 text-right">Stock Value</th>
+                  <th className="p-4 sm:p-5 text-right">Sales Value</th>
+                  <th className="p-4 sm:p-5 text-center">Sold % / Utilization</th>
+                  <th className="p-4 sm:p-5 text-center">Reconciliation Status</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-gray-100 text-xs font-semibold text-[#111]">
+                {stockReconciliationData.employees.length > 0 ? (
+                  stockReconciliationData.employees.map((emp) => (
+                    <tr key={emp.uid} className="hover:bg-gray-50/80 transition-colors">
+                      <td className="p-4 sm:p-5 font-bold font-['Poppins']">
+                        <div className="flex items-center gap-3">
+                          <EmployeeAvatar emp={emp} className="w-8 h-8" textClassName="text-xs" />
+                          <div>
+                            <span className="text-sm font-bold text-[#111]">{emp.name}</span>
+                            <span className="text-[10px] text-gray-400 font-normal block">{emp.productList?.length || 0} product(s)</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="p-4 sm:p-5 text-right font-bold text-[#111] font-['Poppins']">
+                        {emp.totalIssued.toLocaleString('en-IN')}
+                      </td>
+
+                      <td className="p-4 sm:p-5 text-right font-bold text-[#D4AF37] font-['Poppins']">
+                        {emp.totalSold.toLocaleString('en-IN')}
+                      </td>
+
+                      <td className="p-4 sm:p-5 text-right font-bold font-['Poppins']">
+                        <span className={`px-2.5 py-1 rounded-full text-xs ${emp.currentBalance < 0 ? "bg-red-50 text-red-600 font-bold" : "text-[#111]"}`}>
+                          {emp.currentBalance.toLocaleString('en-IN')}
+                        </span>
+                      </td>
+
+                      <td className="p-4 sm:p-5 text-right font-bold text-gray-700 font-['Poppins']">
+                        ₹{emp.totalStockValue.toLocaleString('en-IN')}
+                      </td>
+
+                      <td className="p-4 sm:p-5 text-right font-bold text-green-600 font-['Poppins']">
+                        ₹{emp.totalSalesValue.toLocaleString('en-IN')}
+                      </td>
+
+                      <td className="p-4 sm:p-5 text-center font-bold text-amber-700 font-['Poppins']">
+                        {emp.overallUtilizationFormatted}
+                      </td>
+
+                      <td className="p-4 sm:p-5 text-center">
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${emp.status.color}`}>
+                          {emp.status.icon} {emp.status.label}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-gray-400 font-medium">
+                      No employee stock reconciliation records found for this period.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </motion.div>
-
-
 
       {/* Product Sales Analytics */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="mb-10">

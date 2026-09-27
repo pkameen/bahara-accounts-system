@@ -84,13 +84,13 @@ export default function ProductCard({
           </span>
         </div>
 
-        {/* Footer / Stock */}
+        {/* Footer / Status */}
         <div className="mt-auto flex items-center justify-between">
-          <span className="text-sm text-gray-400 font-medium flex items-center gap-2">
-            <FiLayers className="text-gray-400"/> Inventory Status
+          <span className="text-xs text-gray-400 font-semibold flex items-center gap-1.5">
+            <FiLayers className="text-gray-400"/> Central Stock
           </span>
-          <span className={`text-xs font-bold px-2.5 py-1.5 rounded-lg ${isOutOfStock ? 'bg-gray-100 text-gray-600' : isLowStock ? 'bg-red-50 text-red-600 border border-red-100 shadow-[0_0_10px_rgba(239,68,68,0.2)] animate-pulse' : 'bg-green-50 text-green-600'}`}>
-            {isOutOfStock ? '0 Units' : `${stock} Units${isLowStock ? ' (Low)' : ''}`}
+          <span className={`text-xs font-bold px-2.5 py-1.5 rounded-lg ${isOutOfStock ? 'bg-gray-100 text-gray-600' : 'bg-green-50 text-green-700 border border-green-100'}`}>
+            {isOutOfStock ? 'Out of Stock' : `${stock > 0 ? stock + ' Central Units' : 'In Catalog'}`}
           </span>
         </div>
       </div>

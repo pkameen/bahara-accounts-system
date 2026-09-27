@@ -116,7 +116,6 @@ const Products = () => {
         productName: editingProduct.productName,
         category: editingProduct.category,
         sellingPrice: Number(editingProduct.sellingPrice),
-        stock: Number(editingProduct.stock),
         description: editingProduct.description || "",
         status: editingProduct.status || "Available",
         featured: editingProduct.featured || false,
@@ -481,11 +480,6 @@ const Products = () => {
               <div>
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Selling Price (₹)</label>
                 <input type="number" min="0" value={editingProduct.sellingPrice} onChange={(e) => setEditingProduct({...editingProduct, sellingPrice: e.target.value})} className="w-full bg-gray-50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-xl text-sm font-semibold text-[#111] p-3 outline-none transition-all" required />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Stock</label>
-                <input type="number" min="0" value={editingProduct.stock} onChange={(e) => setEditingProduct({...editingProduct, stock: e.target.value})} className="w-full bg-gray-50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-xl text-sm font-semibold text-[#111] p-3 outline-none transition-all" required />
               </div>
 
               <div>
