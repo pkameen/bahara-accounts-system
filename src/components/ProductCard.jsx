@@ -1,9 +1,9 @@
 import { motion } from "framer-motion";
-import { 
-  FiEdit2, 
-  FiTrash2, 
-  FiDollarSign, 
-  FiLayers, 
+import {
+  FiEdit2,
+  FiTrash2,
+  FiDollarSign,
+  FiLayers,
   FiImage,
   FiStar,
   FiCheckCircle
@@ -19,15 +19,17 @@ export default function ProductCard({
     productName = "Premium Item",
     category = "Unknown",
     sellingPrice = 0,
-    stock = 0,
+    currentAdminStock = 0,
+    unit = "KG",
     image = null,
-    status = "Available",
     featured = false
   } = product || {};
 
   const isNiqab = category.toLowerCase() === "niqab";
-  const isLowStock = stock < 10;
-  const isOutOfStock = stock <= 0 || status === "Out of Stock";
+  const liveStock = Number(product?.currentAdminStock ?? currentAdminStock ?? 0);
+  const stockUnit = unit || product?.unit || "KG";
+  const isOutOfStock = liveStock <= 0;
+  const statusText = isOutOfStock ? "OUT OF STOCK" : "AVAILABLE";
 
   return (
     <motion.div
@@ -52,7 +54,7 @@ export default function ProductCard({
         ) : (
           <FiImage className="text-4xl text-gray-300" />
         )}
-        
+
         <div className="absolute top-3 left-3 flex flex-col gap-2">
           {featured && (
             <span className="bg-[#D4AF37] text-[#111] px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-md flex items-center gap-1">
@@ -76,21 +78,21 @@ export default function ProductCard({
 
         <div className="flex justify-between items-end mb-5 border-b border-gray-50 pb-5">
           <div>
-            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1 font-['Inter']"><FiDollarSign/> Selling Price</p>
+            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1 font-['Inter']"><FiDollarSign /> Selling Price</p>
             <p className="font-bold text-[#111] text-2xl leading-none">₹{sellingPrice}</p>
           </div>
-          <span className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 ${isOutOfStock ? 'text-red-500' : 'text-green-500'}`}>
-            <FiCheckCircle /> {isOutOfStock ? 'Out of Stock' : status}
+          <span className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 ${isOutOfStock ? 'text-red-500' : 'text-emerald-600'}`}>
+            <FiCheckCircle /> {statusText}
           </span>
         </div>
 
         {/* Footer / Status */}
         <div className="mt-auto flex items-center justify-between">
           <span className="text-xs text-gray-400 font-semibold flex items-center gap-1.5">
-            <FiLayers className="text-gray-400"/> Central Stock
+            <FiLayers className="text-gray-400" /> Company Stock
           </span>
-          <span className={`text-xs font-bold px-2.5 py-1.5 rounded-lg ${isOutOfStock ? 'bg-gray-100 text-gray-600' : 'bg-green-50 text-green-700 border border-green-100'}`}>
-            {isOutOfStock ? 'Out of Stock' : `${stock > 0 ? stock + ' Central Units' : 'In Catalog'}`}
+          <span className={`text-xs font-bold px-2.5 py-1.5 rounded-lg ${isOutOfStock ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'}`}>
+            {isOutOfStock ? `OUT OF STOCK` : `AVAILABLE ${liveStock} ${stockUnit}`}
           </span>
         </div>
       </div>

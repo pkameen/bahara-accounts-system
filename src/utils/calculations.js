@@ -570,96 +570,483 @@ export const calculateProductSales = (invoices = [], productsList = []) => {
 
 /**
  * Dynamic Admin Central Company Stock Engine
- * Calculates live Admin Available Stock from Stock Management ledger records
- * strictly excluding legacy initial stock from Product Master.
+ * Calculates live Company Stock from Stock Management ledger records
+ * strictly as: Total Company Stock Added - Company->Employee Transfers - Valid Admin Invoice Deductions
  */
-export const calculateAdminCentralStock = ({
+/**
+ * SINGLE SOURCE OF TRUTH INVENTORY TRANSACTION LEDGER ENGINE
+ * Computes exact Company Stock, Employee Stock, Product Matrix, Stock Values,
+ * and Transaction Logs from valid stock transactions and invoices.
+ */
+export const calculateStockLedger = ({
   productsList = [],
   stockIssues = [],
-  invoices = []
+  invoices = [],
+  employeesList = []
 }) => {
-  const adminStockMap = {};
+  const normalizeStr = (str) => (str || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 
   const prodLookupById = {};
   const prodLookupByName = {};
+  const prodLookupByNormalized = {};
+  const empLookupByUid = {};
+  const empLookupByAlias = {};
+
+  if (Array.isArray(employeesList)) {
+    employeesList.forEach((emp) => {
+      if (emp && emp.uid) {
+        empLookupByUid[emp.uid] = emp;
+        const cleanUid = String(emp.uid).trim().toLowerCase();
+        empLookupByAlias[cleanUid] = emp;
+        if (emp.userId) {
+          empLookupByAlias[String(emp.userId).trim().toLowerCase()] = emp;
+        }
+        if (emp.name) {
+          empLookupByAlias[String(emp.name).trim().toLowerCase()] = emp;
+        }
+        if (emp.email) {
+          empLookupByAlias[String(emp.email).trim().toLowerCase()] = emp;
+        }
+      }
+    });
+  }
+
+  const resolveEmpUid = (rawId, defaultName = "") => {
+    if (!rawId) return null;
+    const str = String(rawId).trim();
+    if (str === "company" || str === "admin_stock" || str === "admin") return null;
+
+    if (empLookupByUid[str]) return empLookupByUid[str].uid;
+
+    const cleanStr = str.toLowerCase();
+    if (empLookupByAlias[cleanStr]) return empLookupByAlias[cleanStr].uid;
+
+    if (defaultName) {
+      const cleanName = String(defaultName).trim().toLowerCase();
+      if (empLookupByAlias[cleanName]) return empLookupByAlias[cleanName].uid;
+    }
+
+    return str;
+  };
+
+  const productsLedger = {};
 
   if (Array.isArray(productsList)) {
     productsList.forEach((prod) => {
       if (!prod || !prod.id) return;
       prodLookupById[prod.id] = prod;
-      if (prod.productName || prod.name) {
-        const nameKey = (prod.productName || prod.name).trim().toLowerCase();
+      const pName = prod.productName || prod.name;
+      if (pName) {
+        const nameKey = pName.trim().toLowerCase();
         prodLookupByName[nameKey] = prod;
+        prodLookupByNormalized[normalizeStr(pName)] = prod;
       }
 
-      adminStockMap[prod.id] = {
+      const price = Number(prod.sellingPrice || prod.price || 0);
+
+      productsLedger[prod.id] = {
         id: prod.id,
         productId: prod.id,
-        productName: prod.productName || prod.name || "Product",
+        productName: pName || "Product",
         category: prod.category || "General",
-        sellingPrice: Number(prod.sellingPrice || prod.price || 0),
+        sellingPrice: price,
         unit: prod.unit || "KG",
         image: prod.image || null,
 
-        // Stock Movement Breakdown
+        // Quantities
         totalStockAdded: 0,
-        totalStockTransferred: 0,
-        totalAdminInvoiced: 0,
+        totalSold: 0,
+        totalAdjustments: 0,
+        companyStock: 0,
+        employeeStock: 0,
+        totalCurrentBalance: 0,
 
-        // Calculated Live Admin Current Available Stock
-        currentAdminStock: 0,
-        totalStockValue: 0
+        // Valuation Values
+        companyStockValue: 0,
+        employeeStockValue: 0,
+        totalStockValue: 0,
+
+        status: "OUT OF STOCK"
       };
     });
   }
 
-  // 1. Process Stock Additions & Transfers in Stock Management (stockIssues / stockTransfers)
-  if (Array.isArray(stockIssues)) {
-    stockIssues.forEach((issue) => {
-      const isAddition =
-        issue.type === "addition" ||
-        issue.type === "received" ||
-        issue.type === "add" ||
-        (issue.from && (issue.from.toLowerCase().includes("supplier") || issue.from.toLowerCase().includes("purchase"))) ||
-        (issue.employeeId === "admin_stock" && issue.type !== "transfer" && issue.type !== "issue");
+  const employeeStockMap = {};
 
-      const items = Array.isArray(issue.products) && issue.products.length > 0
-        ? issue.products
-        : (issue.quantity ? [{
-            productId: issue.productId,
-            productName: issue.productName,
-            quantity: issue.quantity,
-            unit: issue.unit
-          }] : []);
+  const ensureEmployee = (rawId, defaultName = "Employee") => {
+    const canonicalUid = resolveEmpUid(rawId, defaultName) || rawId;
+    if (!canonicalUid) return null;
 
-      items.forEach((item) => {
-        const qty = Number(item.quantity) || 0;
-        if (qty <= 0) return;
+    if (!employeeStockMap[canonicalUid]) {
+      const empDb = empLookupByUid[canonicalUid] || empLookupByAlias[String(rawId).trim().toLowerCase()];
+      const name = empDb?.name || defaultName || "Employee";
+      const photo = empDb?.photoURL || empDb?.photoUrl || empDb?.photo || empDb?.profilePhoto || empDb?.avatarUrl || "";
+      employeeStockMap[canonicalUid] = {
+        uid: canonicalUid,
+        userId: empDb?.userId || canonicalUid,
+        name: name,
+        email: empDb?.email || "",
+        phone: empDb?.phone || "",
+        photoURL: photo,
+        role: empDb?.role || "employee",
+        status: empDb?.status || "active",
+        products: {},
+        totalIssued: 0,
+        totalSold: 0,
+        currentBalance: 0,
+        overallUtilization: 0,
+        overallUtilizationFormatted: "0%",
+        totalStockValue: 0,
+        issueRecords: [],
+        salesRecords: []
+      };
 
-        const rawId = (item.productId || "").trim();
-        const rawName = (item.productName || "Unknown Product").trim();
-        const normName = rawName.toLowerCase();
+      // Alias mapping so subsequent checks point to canonical UID
+      if (empDb) {
+        if (empDb.userId) empLookupByAlias[String(empDb.userId).trim().toLowerCase()] = empDb;
+        if (empDb.name) empLookupByAlias[String(empDb.name).trim().toLowerCase()] = empDb;
+      }
+    }
+    return employeeStockMap[canonicalUid];
+  };
 
-        const dbProd = (rawId && prodLookupById[rawId]) || prodLookupByName[normName] || null;
-        const pId = dbProd?.id || rawId;
-
-        if (pId && adminStockMap[pId]) {
-          if (item.unit && item.unit !== "units") {
-            adminStockMap[pId].unit = item.unit;
-          }
-
-          if (isAddition) {
-            adminStockMap[pId].totalStockAdded += qty;
-          } else {
-            // Stock transferred/allocated to employee
-            adminStockMap[pId].totalStockTransferred += qty;
-          }
-        }
-      });
+  if (Array.isArray(employeesList)) {
+    employeesList.forEach((emp) => {
+      if (emp && emp.uid) {
+        ensureEmployee(emp.uid, emp.name);
+      }
     });
   }
 
-  // 2. Process Stock Consumed by Direct Admin Invoices
+  const findProduct = (item) => {
+    if (!item) return null;
+    const rawId = (item.productId || "").trim();
+    const rawName = (item.productName || item.name || "").trim();
+    const normName = rawName.toLowerCase();
+    const normClean = normalizeStr(rawName);
+
+    return (rawId && prodLookupById[rawId]) ||
+      (normName && prodLookupByName[normName]) ||
+      (normClean && prodLookupByNormalized[normClean]) || null;
+  };
+
+  const processedLogs = [];
+
+  // Helper to resolve product ledger entry
+  const getProductEntry = (item) => {
+    const dbProd = findProduct(item);
+    const rawId = (item.productId || "").trim();
+    const rawName = (item.productName || item.name || "Unknown Product").trim();
+    const normName = rawName.toLowerCase();
+    const pId = dbProd?.id || (rawId !== "" ? rawId : normName);
+
+    if (!productsLedger[pId]) {
+      const price = Number(item.price || dbProd?.sellingPrice || 0);
+      productsLedger[pId] = {
+        id: pId,
+        productId: pId,
+        productName: dbProd?.productName || dbProd?.name || item.productName || item.name || "Product",
+        category: dbProd?.category || item.category || "General",
+        sellingPrice: price,
+        unit: item.unit || dbProd?.unit || "KG",
+        image: dbProd?.image || null,
+
+        totalStockAdded: 0,
+        totalSold: 0,
+        totalAdjustments: 0,
+        companyStock: 0,
+        employeeStock: 0,
+        totalCurrentBalance: 0,
+
+        companyStockValue: 0,
+        employeeStockValue: 0,
+        totalStockValue: 0,
+
+        status: "OUT OF STOCK"
+      };
+    }
+    return productsLedger[pId];
+  };
+
+  // Sort stockIssues chronologically
+  const sortedIssues = [...stockIssues].sort((a, b) => {
+    const tA = a.createdAt || Date.now();
+    const tB = b.createdAt || Date.now();
+    return tA - tB;
+  });
+
+  // 1. Process Stock Ledger Issues & Additions & Transfers & Adjustments
+  sortedIssues.forEach((issue) => {
+    if (issue.status === "REVERSED") return; // Skip reversed if flagged
+
+    const isEmployeeToEmployee =
+      issue.transferType === "EMPLOYEE_TO_EMPLOYEE" ||
+      (issue.fromEmployeeId &&
+        issue.fromEmployeeId !== "company" &&
+        issue.fromEmployeeId !== "admin_stock" &&
+        issue.fromEmployeeId !== "admin" &&
+        issue.toEmployeeId &&
+        issue.fromEmployeeId !== issue.toEmployeeId &&
+        issue.fromEmployeeId !== issue.employeeId);
+
+    const isAddition =
+      issue.type === "STOCK_IN" ||
+      issue.type === "addition" ||
+      issue.type === "received" ||
+      issue.type === "add" ||
+      issue.type === "stock_add" ||
+      ((issue.employeeId === "admin_stock" || issue.employeeId === "company") &&
+        issue.type !== "TRANSFER" && issue.type !== "transfer" && issue.type !== "issue") ||
+      (issue.from && (
+        issue.from.toLowerCase().includes("purchase") ||
+        issue.from.toLowerCase().includes("supplier") ||
+        issue.from.toLowerCase().includes("warehouse") ||
+        issue.from.toLowerCase().includes("vendor") ||
+        issue.from.toLowerCase().includes("factory") ||
+        issue.from.toLowerCase().includes("external")
+      ));
+
+    const isAdjustment = issue.type === "ADJUSTMENT" || issue.type === "adjustment";
+    const isReversal = issue.type === "REVERSAL" || issue.type === "reversal";
+
+    const isCompanyToEmployeeTransfer = !isAddition && !isAdjustment && !isReversal && !isEmployeeToEmployee && (
+      issue.type === "TRANSFER" ||
+      issue.type === "transfer" ||
+      issue.type === "issue" ||
+      issue.transferType === "COMPANY_TO_EMPLOYEE" ||
+      issue.fromEmployeeId === "company" ||
+      issue.fromEmployeeId === "admin_stock" ||
+      issue.fromEmployeeId === "admin"
+    );
+
+    const items = Array.isArray(issue.products) && issue.products.length > 0
+      ? issue.products
+      : (issue.quantity ? [{
+        productId: issue.productId,
+        productName: issue.productName,
+        category: issue.category,
+        quantity: issue.quantity,
+        unit: issue.unit,
+        price: issue.price
+      }] : []);
+
+    items.forEach((item) => {
+      const qty = Number(item.quantity) || 0;
+      if (qty === 0) return;
+
+      const prodEntry = getProductEntry(item);
+      const pId = prodEntry.id;
+      const unitRate = Number(item.price || prodEntry.sellingPrice || 0);
+
+      if (isAddition) {
+        // Stock In to Company Stock
+        prodEntry.totalStockAdded += Math.abs(qty);
+        prodEntry.companyStock += Math.abs(qty);
+
+        processedLogs.push({
+          id: issue.id || `TX-${Math.random()}`,
+          date: issue.date || new Date(issue.createdAt || Date.now()).toLocaleDateString(),
+          createdAt: issue.createdAt || Date.now(),
+          type: "STOCK_IN",
+          badge: { label: "STOCK IN", color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
+          productId: pId,
+          productName: prodEntry.productName,
+          category: prodEntry.category,
+          quantity: Math.abs(qty),
+          unit: item.unit || prodEntry.unit,
+          price: unitRate,
+          value: Math.abs(qty) * unitRate,
+          from: issue.from || "Supplier / External",
+          to: "Company Stock",
+          reference: issue.issueNumber || issue.id || "N/A",
+          userName: issue.createdByName || "Admin",
+          notes: issue.notes || "",
+          status: "COMPLETED",
+          rawIssue: issue
+        });
+      } else if (isCompanyToEmployeeTransfer) {
+        // Company -> Employee Transfer
+        const toUid = issue.toEmployeeId || issue.employeeId;
+        const empObj = toUid ? ensureEmployee(toUid, issue.employeeName || issue.to || "Employee") : null;
+
+        prodEntry.companyStock -= Math.abs(qty);
+
+        if (empObj) {
+          if (!empObj.products[pId]) {
+            empObj.products[pId] = {
+              productId: pId,
+              productName: prodEntry.productName,
+              image: prodEntry.image || null,
+              category: prodEntry.category || "General",
+              unit: item.unit || prodEntry.unit,
+              unitPrice: unitRate,
+              receivedFromCompany: 0,
+              receivedFromEmployees: 0,
+              transferredToEmployees: 0,
+              sold: 0,
+              balance: 0,
+              stockValue: 0
+            };
+          }
+          empObj.products[pId].receivedFromCompany += Math.abs(qty);
+          empObj.products[pId].balance += Math.abs(qty);
+          empObj.totalIssued += Math.abs(qty);
+          empObj.issueRecords.push(issue);
+        }
+
+        processedLogs.push({
+          id: issue.id || `TX-${Math.random()}`,
+          date: issue.date || new Date(issue.createdAt || Date.now()).toLocaleDateString(),
+          createdAt: issue.createdAt || Date.now(),
+          type: "TRANSFER",
+          transferType: "COMPANY_TO_EMPLOYEE",
+          badge: { label: "COMPANY → EMPLOYEE", color: "bg-blue-100 text-blue-800 border-blue-200" },
+          productId: pId,
+          productName: prodEntry.productName,
+          category: prodEntry.category,
+          quantity: Math.abs(qty),
+          unit: item.unit || prodEntry.unit,
+          price: unitRate,
+          value: Math.abs(qty) * unitRate,
+          from: "Company Stock",
+          to: empObj?.name || issue.to || "Employee",
+          reference: issue.transferId || issue.issueNumber || issue.id || "N/A",
+          userName: issue.createdByName || "Admin",
+          notes: issue.notes || "",
+          status: "COMPLETED",
+          rawIssue: issue
+        });
+      } else if (isEmployeeToEmployee) {
+        // Employee -> Employee Transfer (Does NOT change Company Stock!)
+        const fromUid = issue.fromEmployeeId;
+        const toUid = issue.toEmployeeId || issue.employeeId;
+
+        const fromEmpObj = fromUid ? ensureEmployee(fromUid, issue.from || "Employee A") : null;
+        const toEmpObj = toUid ? ensureEmployee(toUid, issue.to || "Employee B") : null;
+
+        if (fromEmpObj) {
+          if (!fromEmpObj.products[pId]) {
+            fromEmpObj.products[pId] = {
+              productId: pId,
+              productName: prodEntry.productName,
+              image: prodEntry.image || null,
+              category: prodEntry.category || "General",
+              unit: item.unit || prodEntry.unit,
+              unitPrice: unitRate,
+              receivedFromCompany: 0,
+              receivedFromEmployees: 0,
+              transferredToEmployees: 0,
+              sold: 0,
+              balance: 0,
+              stockValue: 0
+            };
+          }
+          fromEmpObj.products[pId].transferredToEmployees += Math.abs(qty);
+          fromEmpObj.products[pId].balance -= Math.abs(qty);
+          fromEmpObj.issueRecords.push(issue);
+        }
+
+        if (toEmpObj) {
+          if (!toEmpObj.products[pId]) {
+            toEmpObj.products[pId] = {
+              productId: pId,
+              productName: prodEntry.productName,
+              image: prodEntry.image || null,
+              category: prodEntry.category || "General",
+              unit: item.unit || prodEntry.unit,
+              unitPrice: unitRate,
+              receivedFromCompany: 0,
+              receivedFromEmployees: 0,
+              transferredToEmployees: 0,
+              sold: 0,
+              balance: 0,
+              stockValue: 0
+            };
+          }
+          toEmpObj.products[pId].receivedFromEmployees += Math.abs(qty);
+          toEmpObj.products[pId].balance += Math.abs(qty);
+          toEmpObj.totalIssued += Math.abs(qty);
+          toEmpObj.issueRecords.push(issue);
+        }
+
+        processedLogs.push({
+          id: issue.id || `TX-${Math.random()}`,
+          date: issue.date || new Date(issue.createdAt || Date.now()).toLocaleDateString(),
+          createdAt: issue.createdAt || Date.now(),
+          type: "EMPLOYEE_TRANSFER",
+          transferType: "EMPLOYEE_TO_EMPLOYEE",
+          badge: { label: "EMPLOYEE → EMPLOYEE", color: "bg-[#D4AF37]/20 text-[#D4AF37] border-[#D4AF37]/40" },
+          productId: pId,
+          productName: prodEntry.productName,
+          category: prodEntry.category,
+          quantity: Math.abs(qty),
+          unit: item.unit || prodEntry.unit,
+          price: unitRate,
+          value: Math.abs(qty) * unitRate,
+          from: fromEmpObj?.name || issue.from || "Employee A",
+          to: toEmpObj?.name || issue.to || "Employee B",
+          reference: issue.transferId || issue.issueNumber || issue.id || "N/A",
+          userName: issue.createdByName || "Admin",
+          notes: issue.notes || "",
+          status: "COMPLETED",
+          rawIssue: issue
+        });
+      } else if (isAdjustment) {
+        const adjQty = Number(item.quantity) || 0;
+        prodEntry.companyStock += adjQty;
+        prodEntry.totalAdjustments += adjQty;
+
+        processedLogs.push({
+          id: issue.id || `TX-${Math.random()}`,
+          date: issue.date || new Date(issue.createdAt || Date.now()).toLocaleDateString(),
+          createdAt: issue.createdAt || Date.now(),
+          type: "ADJUSTMENT",
+          badge: { label: "ADJUSTMENT", color: "bg-purple-100 text-purple-800 border-purple-200" },
+          productId: pId,
+          productName: prodEntry.productName,
+          category: prodEntry.category,
+          quantity: adjQty,
+          unit: item.unit || prodEntry.unit,
+          price: unitRate,
+          value: Math.abs(adjQty) * unitRate,
+          from: "System Audit",
+          to: "Company Stock",
+          reference: issue.id || "N/A",
+          userName: issue.createdByName || "Admin",
+          notes: issue.notes || issue.reason || "Physical stock adjustment",
+          status: "COMPLETED",
+          rawIssue: issue
+        });
+      } else if (isReversal) {
+        const revQty = Number(item.quantity) || 0;
+        prodEntry.companyStock += revQty;
+
+        processedLogs.push({
+          id: issue.id || `TX-${Math.random()}`,
+          date: issue.date || new Date(issue.createdAt || Date.now()).toLocaleDateString(),
+          createdAt: issue.createdAt || Date.now(),
+          type: "REVERSAL",
+          badge: { label: "REVERSAL", color: "bg-amber-100 text-amber-800 border-amber-200" },
+          productId: pId,
+          productName: prodEntry.productName,
+          category: prodEntry.category,
+          quantity: revQty,
+          unit: item.unit || prodEntry.unit,
+          price: unitRate,
+          value: Math.abs(revQty) * unitRate,
+          from: "Reversal",
+          to: "Company Stock",
+          reference: issue.referenceId || issue.id || "N/A",
+          userName: issue.createdByName || "Admin",
+          notes: issue.notes || "Transaction Reversal",
+          status: "COMPLETED",
+          rawIssue: issue
+        });
+      }
+    });
+  });
+
+  // 2. Process Sales / Consumption from Invoices
   if (Array.isArray(invoices)) {
     invoices.forEach((inv) => {
       const creatorUid = inv.createdByUid;
@@ -674,49 +1061,207 @@ export const calculateAdminCentralStock = ({
         creatorUserId === "admin" ||
         (!creatorUid && creatorName === "Admin");
 
-      // Only direct Admin invoices deduct from Admin Central Stock
-      if (!isAdminInvoice) return;
-
       const prods = inv.products || [];
-      prods.forEach((item) => {
-        const qty = Number(item.quantity) || 0;
+      prods.forEach((lineItem) => {
+        const qty = Number(lineItem.quantity) || 0;
         if (qty <= 0) return;
 
-        const rawId = (item.productId || "").trim();
-        const rawName = (item.productName || item.name || "Unknown Product").trim();
-        const normName = rawName.toLowerCase();
+        const prodEntry = getProductEntry(lineItem);
+        const pId = prodEntry.id;
+        const unitRate = Number(lineItem.price || prodEntry.sellingPrice || 0);
 
-        const dbProd = (rawId && prodLookupById[rawId]) || prodLookupByName[normName] || null;
-        const pId = dbProd?.id || rawId;
+        prodEntry.totalSold += qty;
 
-        if (pId && adminStockMap[pId]) {
-          adminStockMap[pId].totalAdminInvoiced += qty;
+        if (isAdminInvoice) {
+          // Direct Admin Sales deduct from Company Stock
+          prodEntry.companyStock -= qty;
+        } else if (creatorUid) {
+          // Employee Sales deduct from Employee Stock
+          const empObj = ensureEmployee(creatorUid, creatorName || "Employee");
+          if (empObj) {
+            if (!empObj.products[pId]) {
+              empObj.products[pId] = {
+                productId: pId,
+                productName: prodEntry.productName,
+                image: prodEntry.image || null,
+                category: prodEntry.category || "General",
+                unit: lineItem.unit || prodEntry.unit,
+                unitPrice: unitRate,
+                receivedFromCompany: 0,
+                receivedFromEmployees: 0,
+                transferredToEmployees: 0,
+                sold: 0,
+                balance: 0,
+                stockValue: 0
+              };
+            }
+            empObj.products[pId].sold += qty;
+            empObj.products[pId].balance -= qty;
+            empObj.totalSold += qty;
+            empObj.salesRecords.push(inv);
+          }
         }
+
+        processedLogs.push({
+          id: `INV-${inv.id}-${pId}`,
+          rawInvoice: inv,
+          date: inv.invoiceDate || new Date(inv.createdAt || Date.now()).toLocaleDateString(),
+          createdAt: inv.createdAt || Date.now(),
+          type: "SALE",
+          badge: { label: "SALE", color: "bg-rose-100 text-rose-800 border-rose-200" },
+          productId: pId,
+          productName: prodEntry.productName,
+          category: prodEntry.category,
+          quantity: qty,
+          unit: lineItem.unit || prodEntry.unit,
+          price: unitRate,
+          value: Number(lineItem.total) || (qty * unitRate),
+          from: isAdminInvoice ? "Company Stock" : (creatorName || "Employee Stock"),
+          to: inv.customerName || "Customer",
+          reference: inv.invoiceNumber || inv.id,
+          userName: creatorName || "Sales Rep",
+          notes: `Invoice #${inv.invoiceNumber || inv.id}`,
+          status: "COMPLETED"
+        });
       });
     });
   }
 
-  // 3. Compute Live Admin Current Available Stock per Product
-  Object.values(adminStockMap).forEach((item) => {
-    // Current Admin Stock = totalAdded - totalTransferred - totalAdminInvoiced (ignoring legacy product.stock)
-    item.currentAdminStock = Math.max(0, item.totalStockAdded - item.totalStockTransferred - item.totalAdminInvoiced);
-    item.totalStockValue = item.currentAdminStock * item.sellingPrice;
+  // 3. Compute Employee Balances & Total Employee Stock
+  let totalEmployeeStockValue = 0;
+  let totalEmployeeStockQty = 0;
+
+  Object.values(employeeStockMap).forEach((emp) => {
+    let empBal = 0;
+    let empVal = 0;
+
+    const productList = Object.values(emp.products).map((p) => {
+      p.balance = (p.receivedFromCompany || 0) + (p.receivedFromEmployees || 0) - (p.transferredToEmployees || 0) - (p.sold || 0);
+      p.stockValue = Math.max(0, p.balance) * p.unitPrice;
+      p.utilization = p.receivedFromCompany + p.receivedFromEmployees > 0
+        ? Number(((p.sold / (p.receivedFromCompany + p.receivedFromEmployees)) * 100).toFixed(1))
+        : (p.sold > 0 ? 100 : 0);
+      p.utilizationFormatted = `${p.utilization}%`;
+
+      p.status = p.balance > 0
+        ? { label: "Available", color: "bg-emerald-100 text-emerald-800 border-emerald-200" }
+        : { label: "Out of Stock", color: "bg-red-100 text-red-800 border-red-200" };
+
+      empBal += p.balance;
+      empVal += p.stockValue;
+      return p;
+    }).sort((a, b) => b.sold - a.sold || b.balance - a.balance);
+
+    emp.productList = productList;
+    emp.currentBalance = empBal;
+    emp.totalStockValue = empVal;
+
+    emp.overallUtilization = emp.totalIssued > 0
+      ? Number(((emp.totalSold / emp.totalIssued) * 100).toFixed(1))
+      : 0;
+    emp.overallUtilizationFormatted = `${emp.overallUtilization}%`;
+
+    emp.status = emp.currentBalance > 0
+      ? { label: "Stock Remaining", color: "bg-amber-100 text-amber-700 border-amber-200" }
+      : { label: "Normal", color: "bg-green-100 text-green-700 border-green-200" };
+
+    totalEmployeeStockQty += Math.max(0, empBal);
+    totalEmployeeStockValue += empVal;
   });
 
-  const adminProducts = Object.values(adminStockMap);
-  const totalAdminStockQty = adminProducts.reduce((sum, p) => sum + p.currentAdminStock, 0);
-  const totalAdminStockValue = adminProducts.reduce((sum, p) => sum + p.totalStockValue, 0);
+  // 4. Compute Final Product Balances, Values & Status
+  let totalCompanyStockValue = 0;
+  let totalCompanyStockQty = 0;
+
+  Object.values(productsLedger).forEach((prod) => {
+    let productEmpStock = 0;
+    Object.values(employeeStockMap).forEach((emp) => {
+      if (emp.products[prod.id]) {
+        productEmpStock += Math.max(0, emp.products[prod.id].balance);
+      }
+    });
+
+    prod.employeeStock = productEmpStock;
+    prod.totalCurrentBalance = prod.companyStock + productEmpStock;
+
+    prod.companyStockValue = prod.companyStock * prod.sellingPrice;
+    prod.employeeStockValue = productEmpStock * prod.sellingPrice;
+    prod.totalStockValue = prod.totalCurrentBalance * prod.sellingPrice;
+
+    prod.status = prod.totalCurrentBalance > 0 ? "AVAILABLE" : "OUT OF STOCK";
+
+    totalCompanyStockQty += prod.companyStock;
+    totalCompanyStockValue += prod.companyStockValue;
+  });
+
+  const grandTotalStockValue = totalCompanyStockValue + totalEmployeeStockValue;
+  const grandTotalCurrentBalance = totalCompanyStockQty + totalEmployeeStockQty;
+
+  // Sort logs latest first
+  processedLogs.sort((a, b) => b.createdAt - a.createdAt);
+
+  return {
+    productsLedger,
+    productsList: Object.values(productsLedger),
+    employeeStockMap,
+    employeesList: Object.values(employeeStockMap),
+    resolveEmpUid,
+    summary: {
+      companyStockQty: totalCompanyStockQty,
+      companyStockValue: totalCompanyStockValue,
+      employeeStockQty: totalEmployeeStockQty,
+      totalEmployeeStockValue: totalEmployeeStockValue,
+      totalStockQty: grandTotalCurrentBalance,
+      totalStockValue: grandTotalStockValue
+    },
+    transactionsLog: processedLogs
+  };
+};
+
+/**
+ * Dynamic Admin Central Company Stock Engine
+ * Wrapper around single-source-of-truth calculateStockLedger
+ */
+export const calculateAdminCentralStock = ({
+  productsList = [],
+  stockIssues = [],
+  invoices = []
+}) => {
+  const ledger = calculateStockLedger({
+    productsList,
+    stockIssues,
+    invoices
+  });
+
+  const adminStockMap = {};
+  Object.values(ledger.productsLedger).forEach((p) => {
+    adminStockMap[p.id] = {
+      id: p.id,
+      productId: p.id,
+      productName: p.productName,
+      category: p.category,
+      sellingPrice: p.sellingPrice,
+      unit: p.unit,
+      image: p.image,
+      totalStockAdded: p.totalStockAdded,
+      totalStockTransferred: p.employeeStock,
+      totalAdminInvoiced: p.totalSold,
+      currentAdminStock: p.companyStock,
+      totalStockValue: p.companyStockValue
+    };
+  });
 
   return {
     adminStockMap,
-    adminProducts,
-    totalAdminStockQty,
-    totalAdminStockValue
+    adminProducts: Object.values(adminStockMap),
+    totalAdminStockQty: ledger.summary.companyStockQty,
+    totalAdminStockValue: ledger.summary.companyStockValue
   };
 };
 
 /**
  * Employee Product Stock & Sales Reconciliation Calculation Engine
+ * Single Source of Truth delegate
  */
 export const calculateEmployeeStockReconciliation = ({
   stockIssues = [],
@@ -728,343 +1273,38 @@ export const calculateEmployeeStockReconciliation = ({
   endDate = "",
   targetEmployeeUid = null
 }) => {
-  const empMap = {};
-  const prodMapById = {};
-  const prodMapByName = {};
+  const ledger = calculateStockLedger({
+    productsList,
+    stockIssues,
+    invoices,
+    employeesList
+  });
 
-  if (Array.isArray(employeesList)) {
-    employeesList.forEach((emp) => {
-      if (emp && emp.uid) {
-        empMap[emp.uid] = emp;
-      }
-    });
-  }
-
-  if (Array.isArray(productsList)) {
-    productsList.forEach((p) => {
-      if (p && p.id) {
-        prodMapById[p.id] = p;
-      }
-      if (p && (p.productName || p.name)) {
-        const key = (p.productName || p.name).trim().toLowerCase();
-        prodMapByName[key] = p;
-      }
-    });
-  }
-
-  // End date timestamp cutoff if custom end date provided
-  let cutoffTimestamp = Infinity;
-  if (filterType === "custom" && endDate) {
-    cutoffTimestamp = endOfDay(new Date(endDate)).getTime();
-  }
-
-  const isDateInPeriod = (dateVal) => {
-    if (!filterType || filterType === "all") return true;
-    return filterItemsByDate([{ dateVal }], filterType, startDate, endDate, "dateVal").length > 0;
-  };
-
-  let filteredIssues = stockIssues;
-  let filteredInvoices = invoices;
+  let employeesReconciliation = ledger.employeesList;
 
   if (targetEmployeeUid) {
-    filteredIssues = filteredIssues.filter(issue => issue.employeeId === targetEmployeeUid);
-    filteredInvoices = filteredInvoices.filter(inv => inv.createdByUid === targetEmployeeUid);
+    const canonicalUid = ledger.resolveEmpUid(targetEmployeeUid) || targetEmployeeUid;
+    const empObj = ledger.employeeStockMap[canonicalUid];
+    if (empObj) {
+      employeesReconciliation = [empObj];
+    } else {
+      // Fallback matching
+      const found = ledger.employeesList.find(e =>
+        e.uid === targetEmployeeUid ||
+        e.userId === targetEmployeeUid ||
+        e.name?.toLowerCase() === String(targetEmployeeUid).toLowerCase() ||
+        e.email?.toLowerCase() === String(targetEmployeeUid).toLowerCase()
+      );
+      employeesReconciliation = found ? [found] : [];
+    }
   }
-
-  const ledger = {};
-
-  const ensureEmployee = (uid, defaultName = "Employee") => {
-    if (!ledger[uid]) {
-      const empDb = empMap[uid];
-      const photo = empDb?.photoURL || empDb?.photoUrl || empDb?.photo || empDb?.profilePhoto || empDb?.avatarUrl || "";
-      ledger[uid] = {
-        uid,
-        name: empDb?.name || defaultName,
-        email: empDb?.email || "",
-        phone: empDb?.phone || "",
-        photoURL: photo,
-        role: empDb?.role || "employee",
-        status: empDb?.status || "active",
-        totalIssued: 0,
-        totalSold: 0,
-        currentBalance: 0,
-        overallUtilization: 0,
-        overallUtilizationFormatted: "0%",
-        totalStockValue: 0,
-        totalSalesValue: 0,
-        expectedSales: 0,
-        receivedAmount: 0,
-        pendingAmount: 0,
-        paymentDifference: 0,
-        products: {},
-        issueRecords: [],
-        salesRecords: []
-      };
-    }
-    return ledger[uid];
-  };
-
-  // Pre-initialize from employees list
-  if (Array.isArray(employeesList)) {
-    employeesList.forEach((emp) => {
-      if (emp && emp.uid) {
-        ensureEmployee(emp.uid, emp.name);
-      }
-    });
-  }
-
-  // Process ALL Stock Issues (continuous ledger up to optional cutoff date)
-  filteredIssues.forEach((issue) => {
-    const empUid = issue.employeeId;
-    if (!empUid) return;
-
-    let issueDateVal = issue.createdAt || Date.now();
-    if (issue.date) {
-      const [y, m, d] = issue.date.split('-');
-      if (y && m && d) issueDateVal = new Date(y, m - 1, d).getTime();
-    }
-
-    if (issueDateVal > cutoffTimestamp) return;
-
-    const empObj = ensureEmployee(empUid, issue.employeeName);
-
-    const issueRecord = {
-      ...issue,
-      dateVal: issueDateVal,
-      formattedDate: new Date(issueDateVal).toLocaleDateString(),
-      inPeriod: isDateInPeriod(issueDateVal)
-    };
-    empObj.issueRecords.push(issueRecord);
-
-    const itemsToProcess = Array.isArray(issue.products) && issue.products.length > 0
-      ? issue.products
-      : (issue.quantity ? [{
-          productId: issue.productId,
-          productName: issue.productName,
-          quantity: issue.quantity,
-          unit: issue.unit,
-          price: issue.price
-        }] : []);
-
-    itemsToProcess.forEach((item) => {
-      const qty = Number(item.quantity) || 0;
-      if (qty <= 0) return;
-
-      const rawId = (item.productId || "").trim();
-      const rawName = (item.productName || "Unknown Product").trim();
-      const normName = rawName.toLowerCase();
-      const dbProd = (rawId && prodMapById[rawId]) || prodMapByName[normName] || null;
-
-      const pId = dbProd?.id || (rawId !== "" ? rawId : normName);
-      const pName = dbProd?.productName || dbProd?.name || item.productName || "Product";
-      const image = dbProd?.image || dbProd?.imageUrl || dbProd?.photo || null;
-      const category = dbProd?.category || "General";
-      const unit = item.unit || dbProd?.unit || "units";
-      const price = Number(item.price || dbProd?.sellingPrice || 0);
-
-      empObj.totalIssued += qty;
-
-      if (!empObj.products[pId]) {
-        empObj.products[pId] = {
-          productId: pId,
-          productName: pName,
-          image: image,
-          category: category,
-          unit: unit,
-          unitPrice: price,
-          issued: 0,
-          sold: 0,
-          balance: 0,
-          utilization: 0,
-          utilizationFormatted: "0%",
-          salesShare: 0,
-          salesShareFormatted: "0%",
-          stockValue: 0,
-          salesValue: 0,
-          invoiceCount: 0
-        };
-      }
-
-      empObj.products[pId].issued += qty;
-      if (price > 0) {
-        empObj.products[pId].unitPrice = price;
-      }
-      if (!empObj.products[pId].image && image) {
-        empObj.products[pId].image = image;
-      }
-    });
-  });
-
-  // Process ALL Invoices / Sales (continuous sales tally up to optional cutoff date)
-  filteredInvoices.forEach((inv) => {
-    const empUid = inv.createdByUid;
-    if (!empUid) return;
-
-    let saleDateVal = inv.createdAt || Date.now();
-    if (inv.invoiceDate) {
-      const [y, m, d] = inv.invoiceDate.split('-');
-      if (y && m && d) saleDateVal = new Date(y, m - 1, d).getTime();
-    }
-
-    if (saleDateVal > cutoffTimestamp) return;
-
-    const empObj = ensureEmployee(empUid, inv.createdByName);
-    const isPaid = (inv.paymentStatus || "paid") === "paid";
-
-    empObj.salesRecords.push({
-      ...inv,
-      dateVal: saleDateVal,
-      formattedDate: new Date(saleDateVal).toLocaleDateString(),
-      inPeriod: isDateInPeriod(saleDateVal)
-    });
-
-    const prods = inv.products || [];
-    prods.forEach((p) => {
-      const qty = Number(p.quantity) || 0;
-      if (qty <= 0) return;
-
-      const rawId = (p.productId || "").trim();
-      const rawName = (p.productName || p.name || "Unknown Product").trim();
-      const normName = rawName.toLowerCase();
-      const dbProd = (rawId && prodMapById[rawId]) || prodMapByName[normName] || null;
-
-      const pId = dbProd?.id || (rawId !== "" ? rawId : normName);
-      const pName = dbProd?.productName || dbProd?.name || p.productName || "Product";
-      const image = dbProd?.image || dbProd?.imageUrl || dbProd?.photo || null;
-      const category = dbProd?.category || p.category || "General";
-      const unitPrice = Number(p.price || dbProd?.sellingPrice || 0);
-      const lineTotal = Number(p.total) || (qty * unitPrice);
-
-      empObj.totalSold += qty;
-      empObj.expectedSales += lineTotal;
-      if (isPaid) {
-        empObj.receivedAmount += lineTotal;
-      } else {
-        empObj.pendingAmount += lineTotal;
-      }
-
-      if (!empObj.products[pId]) {
-        empObj.products[pId] = {
-          productId: pId,
-          productName: pName,
-          image: image,
-          category: category,
-          unit: "units",
-          unitPrice: unitPrice,
-          issued: 0,
-          sold: 0,
-          balance: 0,
-          utilization: 0,
-          utilizationFormatted: "0%",
-          salesShare: 0,
-          salesShareFormatted: "0%",
-          stockValue: 0,
-          salesValue: 0,
-          invoiceCount: 0
-        };
-      }
-
-      empObj.products[pId].sold += qty;
-      empObj.products[pId].salesValue += lineTotal;
-      empObj.products[pId].invoiceCount += 1;
-
-      if (!empObj.products[pId].image && image) {
-        empObj.products[pId].image = image;
-      }
-    });
-  });
-
-  // Compute balances, utilization percentages, stock values, and status badges
-  const employeesReconciliation = Object.values(ledger).map((emp) => {
-    emp.currentBalance = emp.totalIssued - emp.totalSold;
-    emp.overallUtilization = emp.totalIssued > 0 ? Number(((emp.totalSold / emp.totalIssued) * 100).toFixed(1)) : 0;
-    emp.overallUtilizationFormatted = `${emp.overallUtilization}%`;
-
-    emp.paymentDifference = emp.expectedSales - emp.receivedAmount;
-
-    let hasMismatch = false;
-
-    const productList = Object.values(emp.products).map((p) => {
-      p.balance = p.issued - p.sold;
-
-      // Stock Utilization Percentage = (Sold / Issued) * 100
-      p.utilization = p.issued > 0 ? Number(((p.sold / p.issued) * 100).toFixed(1)) : (p.sold > 0 ? 100 : 0);
-      p.utilizationFormatted = `${p.utilization}%`;
-
-      // Product Sales Percentage = (Product Sold / Total Products Sold) * 100
-      p.salesShare = emp.totalSold > 0 ? Number(((p.sold / emp.totalSold) * 100).toFixed(1)) : 0;
-      p.salesShareFormatted = `${p.salesShare}%`;
-
-      // Remaining Stock Value = Remaining Balance * Unit Rate
-      p.stockValue = Math.max(0, p.balance) * p.unitPrice;
-
-      let prodStatus = { label: "Stock Remaining", color: "bg-amber-50 text-amber-700 border-amber-200", code: "remaining", icon: "🟡" };
-      if (p.issued === 0 && p.sold === 0) {
-        prodStatus = { label: "No Stock Issued", color: "bg-gray-100 text-gray-500 border-gray-200", code: "no_stock", icon: "⚪" };
-      } else if (p.balance === 0) {
-        prodStatus = { label: "Fully Sold", color: "bg-green-50 text-green-700 border-green-200", code: "sold", icon: "🟢" };
-      } else if (p.balance < 0) {
-        hasMismatch = true;
-        prodStatus = {
-          label: `STOCK MISMATCH (Over-sold: ${Math.abs(p.balance)} units)`,
-          color: "bg-red-100 text-red-700 border-red-200 font-bold",
-          code: "mismatch",
-          icon: "🔴",
-          overSold: Math.abs(p.balance)
-        };
-      }
-      p.status = prodStatus;
-      return p;
-    }).sort((a, b) => b.sold - a.sold || b.issued - a.issued);
-
-    emp.productList = productList;
-
-    // Highest selling product
-    emp.highestSellingProduct = productList.length > 0 && productList[0].sold > 0 ? productList[0] : null;
-
-    // Total Stock Value for Employee
-    emp.totalStockValue = productList.reduce((sum, p) => sum + p.stockValue, 0);
-    emp.totalSalesValue = productList.reduce((sum, p) => sum + p.salesValue, 0);
-
-    // Overall Employee Status
-    let status = { label: "Normal", color: "bg-green-100 text-green-700 border-green-200", code: "normal", icon: "🟢" };
-    if (hasMismatch || emp.currentBalance < 0) {
-      status = { label: "STOCK MISMATCH", color: "bg-red-100 text-red-700 border-red-200 font-bold", code: "stock_mismatch", icon: "🔴" };
-    } else if (emp.currentBalance > 0) {
-      status = { label: "Stock Remaining", color: "bg-amber-100 text-amber-700 border-amber-200", code: "stock_remaining", icon: "🟡" };
-    }
-    emp.status = status;
-
-    emp.issueRecords.sort((a, b) => b.dateVal - a.dateVal);
-    emp.salesRecords.sort((a, b) => b.dateVal - a.dateVal);
-
-    return emp;
-  });
 
   const overallIssued = employeesReconciliation.reduce((sum, e) => sum + e.totalIssued, 0);
   const overallSold = employeesReconciliation.reduce((sum, e) => sum + e.totalSold, 0);
   const overallBalance = overallIssued - overallSold;
   const overallStockUtilization = overallIssued > 0 ? Number(((overallSold / overallIssued) * 100).toFixed(1)) : 0;
   const overallStockUtilizationFormatted = `${overallStockUtilization}%`;
-
   const totalEmployeeStockValue = employeesReconciliation.reduce((sum, e) => sum + e.totalStockValue, 0);
-
-  // Central Available Company Stock & Valuation (Single Source of Truth: Stock Management records)
-  const adminStockCalc = calculateAdminCentralStock({
-    productsList,
-    stockIssues,
-    invoices
-  });
-
-  const totalCentralStockQty = adminStockCalc.totalAdminStockQty;
-  const totalCentralStockValue = adminStockCalc.totalAdminStockValue;
-
-  const totalCompanyControlledStockQty = totalCentralStockQty + Math.max(0, overallBalance);
-  const totalCompanyStockValue = totalCentralStockValue + totalEmployeeStockValue;
-
-  const stockMismatchCount = employeesReconciliation.filter(e => e.status.code === "stock_mismatch").length;
-  const paymentDiffCount = employeesReconciliation.filter(e => e.paymentDifference > 0).length;
-  const employeesWithBalanceCount = employeesReconciliation.filter(e => e.currentBalance > 0).length;
 
   return {
     employees: employeesReconciliation,
@@ -1073,14 +1313,14 @@ export const calculateEmployeeStockReconciliation = ({
     overallBalance,
     overallStockUtilization,
     overallStockUtilizationFormatted,
-    totalCentralStockQty,
-    totalCentralStockValue,
+    totalCentralStockQty: ledger.summary.companyStockQty,
+    totalCentralStockValue: ledger.summary.companyStockValue,
     totalEmployeeStockValue,
-    totalCompanyControlledStockQty,
-    totalCompanyStockValue,
-    stockMismatchCount,
-    paymentDiffCount,
-    employeesWithBalanceCount
+    totalCompanyControlledStockQty: ledger.summary.totalStockQty,
+    totalCompanyStockValue: ledger.summary.totalStockValue,
+    stockMismatchCount: employeesReconciliation.filter(e => e.currentBalance < 0).length,
+    paymentDiffCount: 0,
+    employeesWithBalanceCount: employeesReconciliation.filter(e => e.currentBalance > 0).length
   };
 };
 
@@ -1199,12 +1439,12 @@ export const calculatePeriodEmployeeStockReport = ({
     const items = Array.isArray(issue.products) && issue.products.length > 0
       ? issue.products
       : (issue.quantity ? [{
-          productId: issue.productId,
-          productName: issue.productName,
-          quantity: issue.quantity,
-          unit: issue.unit,
-          price: issue.price
-        }] : []);
+        productId: issue.productId,
+        productName: issue.productName,
+        quantity: issue.quantity,
+        unit: issue.unit,
+        price: issue.price
+      }] : []);
 
     items.forEach(item => {
       const qty = Number(item.quantity) || 0;

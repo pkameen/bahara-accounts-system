@@ -250,6 +250,52 @@ const AddProduct = () => {
               </div>
             </div>
 
+            {/* Stock Unit */}
+            <div className="relative group/input">
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">Stock Unit *</label>
+              <div className="relative flex items-center">
+                <select
+                  name="unit"
+                  value={["KG", "Gram", "Piece", "Pack", "Packet", "Box", "Bottle", "Bag", "Dozen", "Litre", "Meter", "Carton"].includes(product.unit) ? product.unit : "CUSTOM"}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "CUSTOM") {
+                      setProduct({ ...product, unit: "" });
+                    } else {
+                      setProduct({ ...product, unit: val });
+                    }
+                  }}
+                  className="w-full bg-gray-50/80 hover:bg-gray-100/50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-2xl text-sm font-semibold text-[#111] outline-none transition-all p-4 cursor-pointer"
+                  required
+                >
+                  <option value="KG">KG</option>
+                  <option value="Gram">Gram</option>
+                  <option value="Piece">Piece</option>
+                  <option value="Pack">Pack</option>
+                  <option value="Packet">Packet</option>
+                  <option value="Box">Box</option>
+                  <option value="Bottle">Bottle</option>
+                  <option value="Bag">Bag</option>
+                  <option value="Dozen">Dozen</option>
+                  <option value="Litre">Litre</option>
+                  <option value="Meter">Meter</option>
+                  <option value="Carton">Carton</option>
+                  <option value="CUSTOM">+ Custom Unit...</option>
+                </select>
+              </div>
+              {!["KG", "Gram", "Piece", "Pack", "Packet", "Box", "Bottle", "Bag", "Dozen", "Litre", "Meter", "Carton"].includes(product.unit) && (
+                <input
+                  type="text"
+                  name="unit"
+                  placeholder="Enter custom unit (e.g. Roll, Container)..."
+                  value={product.unit}
+                  onChange={handleChange}
+                  className="mt-2 w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs font-bold text-[#111] outline-none"
+                  required
+                />
+              )}
+            </div>
+
             {/* Selling Price */}
             <div className="relative group/input md:col-span-2">
               <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">Selling Price (₹) *</label>

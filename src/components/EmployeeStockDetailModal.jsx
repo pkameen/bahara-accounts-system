@@ -67,7 +67,7 @@ const ChartTooltip = ({ active, payload }) => {
 };
 
 export default function EmployeeStockDetailModal({ employee, isOpen, onClose, onEditIssue, onDeleteIssue, isAdmin }) {
-  const [activeTab, setActiveTab] = useState("breakdown"); // "breakdown" | "issues" | "sales" | "reconciliation"
+  const [activeTab, setActiveTab] = useState("breakdown"); // "breakdown" | "issues" | "sales"
   const [expandedIssueId, setExpandedIssueId] = useState(null);
   const [activePieIndex, setActivePieIndex] = useState(null);
 
@@ -99,7 +99,7 @@ export default function EmployeeStockDetailModal({ employee, isOpen, onClose, on
             <EmployeeAvatar emp={employee} className="w-14 h-14 sm:w-16 sm:h-16 shadow-xl border-2 border-[#D4AF37]/50" textClassName="text-xl font-bold" />
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-xl sm:text-2xl font-bold tracking-tight font-['Poppins']">{employee.name}</h3>
+                <h3 className="text-xl sm:text-2xl font-bold tracking-tight font-['Poppins'] text-[#D4AF37]">{employee.name}</h3>
                 <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${employee.status?.color}`}>
                   {employee.status?.icon} {employee.status?.label}
                 </span>
@@ -204,16 +204,6 @@ export default function EmployeeStockDetailModal({ employee, isOpen, onClose, on
               }`}
             >
               Sales History ({employee.salesRecords?.length || 0})
-            </button>
-            <button
-              onClick={() => setActiveTab("reconciliation")}
-              className={`pb-3 px-4 font-bold text-xs uppercase tracking-wider transition-all border-b-2 cursor-pointer whitespace-nowrap ${
-                activeTab === "reconciliation"
-                  ? "border-[#D4AF37] text-[#111]"
-                  : "border-transparent text-gray-400 hover:text-gray-700"
-              }`}
-            >
-              Cash Reconciliation
             </button>
           </div>
 
@@ -639,32 +629,7 @@ export default function EmployeeStockDetailModal({ employee, isOpen, onClose, on
             </div>
           )}
 
-          {/* TAB 4: CASH & PAYMENT RECONCILIATION */}
-          {activeTab === "reconciliation" && (
-            <div className="bg-gray-50/80 border border-gray-100 rounded-2xl p-6 space-y-4">
-              <h4 className="text-base font-bold text-[#111] font-['Poppins']">Cash & Payment Realization Audit</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-white p-4 rounded-xl border border-gray-200">
-                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block mb-1">Expected Sales Total</span>
-                  <span className="text-xl font-bold text-green-600 font-['Poppins']">
-                    ₹{employee.expectedSales.toLocaleString('en-IN')}
-                  </span>
-                </div>
-                <div className="bg-white p-4 rounded-xl border border-gray-200">
-                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block mb-1">Received (Paid Invoices)</span>
-                  <span className="text-xl font-bold text-emerald-600 font-['Poppins']">
-                    ₹{employee.receivedAmount.toLocaleString('en-IN')}
-                  </span>
-                </div>
-                <div className="bg-white p-4 rounded-xl border border-gray-200">
-                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block mb-1">Pending Amount</span>
-                  <span className={`text-xl font-bold font-['Poppins'] ${employee.paymentDifference > 0 ? "text-rose-600" : "text-gray-700"}`}>
-                    ₹{employee.paymentDifference.toLocaleString('en-IN')}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
+
 
         </div>
       </div>

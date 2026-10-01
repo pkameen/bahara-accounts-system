@@ -12,7 +12,8 @@ import {
   FiBriefcase,
   FiAward,
   FiPlus,
-  FiTrendingUp
+  FiTrendingUp,
+  FiCreditCard
 } from "react-icons/fi";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import SalesCard from "../components/SalesCard";
@@ -166,13 +167,29 @@ export default function EmployeeDashboard() {
 
 
   const cards = [
-    { title: "My Sales", amount: `₹${totalTurnover}`, icon: <FiDollarSign />, color: "text-[#D4AF37]" },
-    { title: "My Revenue (Paid)", amount: `₹${totalTurnover - pendingTotal}`, icon: <FiBriefcase />, color: "text-green-500" },
-    { title: "My Expenses", amount: `₹${totalExpenses}`, icon: <FiTrendingDown />, color: "text-red-500" },
+    {
+      title: "My Net Balance",
+      amount: profit < 0 ? `-₹${Math.abs(profit).toLocaleString('en-IN')}` : `₹${profit.toLocaleString('en-IN')}`,
+      icon: <FiCreditCard />,
+      color: profit < 0 ? "text-rose-300" : "text-emerald-300",
+      bgClass: "bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#311b92] text-white border-indigo-400/40 shadow-2xl",
+      subtext: `Sales ₹${totalTurnover.toLocaleString('en-IN')} - Exp ₹${totalExpenses.toLocaleString('en-IN')}`
+    },
+    { title: "My Sales", amount: `₹${totalTurnover.toLocaleString('en-IN')}`, icon: <FiDollarSign />, color: "text-[#D4AF37]" },
+    { title: "My Revenue (Paid)", amount: `₹${(totalTurnover - pendingTotal).toLocaleString('en-IN')}`, icon: <FiBriefcase />, color: "text-green-500" },
+    { title: "My Expenses", amount: `₹${totalExpenses.toLocaleString('en-IN')}`, icon: <FiTrendingDown />, color: "text-red-500" },
     { title: "Stock Issued", amount: myStockRecon ? `${myStockRecon.totalIssued}` : "0", icon: <FiPackage />, color: "text-[#D4AF37]" },
-    { title: "Stock Balance", amount: myStockRecon ? `${myStockRecon.currentBalance}` : "0", icon: <FiPackage />, color: myStockRecon && myStockRecon.currentBalance < 0 ? "text-red-500" : "text-emerald-500" },
-    { title: "My Invoices", amount: totalInvoices, icon: <FiFileText /> },
-    { title: "My Items Sold", amount: totalItemsSold, icon: <FiPackage /> },
+    {
+      title: "Stock Balance",
+      amount: myStockRecon ? `${myStockRecon.currentBalance}` : "0",
+      icon: <FiPackage />,
+      color: myStockRecon && myStockRecon.currentBalance < 0 ? "text-red-300" : "text-[#D4AF37]",
+      bgClass: myStockRecon && myStockRecon.currentBalance < 0
+        ? "bg-gradient-to-br from-rose-950 via-red-900 to-rose-900 text-white border-rose-500/40 shadow-xl"
+        : "bg-gradient-to-br from-[#111111] via-[#1c1917] to-[#292524] text-white border-[#D4AF37]/30 shadow-xl"
+    },
+    { title: "My Invoices", amount: totalInvoices, icon: <FiFileText />, color: "text-indigo-600" },
+    { title: "My Items Sold", amount: totalItemsSold, icon: <FiPackage />, color: "text-purple-600" },
   ];
 
 
@@ -189,8 +206,8 @@ export default function EmployeeDashboard() {
         <DateFilter filterType={filterType} setFilterType={setFilterType} startDate={startDate} setStartDate={setStartDate} endDate={endDate} setEndDate={setEndDate} />
       </motion.div>
 
-      {/* Top 6 KPI Cards Grid */}
-      <motion.div variants={containerVariants} initial="hidden" animate="show" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5 mb-10">
+      {/* Top KPI Cards Grid */}
+      <motion.div variants={containerVariants} initial="hidden" animate="show" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
         {cards.map((card, index) => (
           <motion.div variants={itemVariants} key={index}>
             <SalesCard {...card} />

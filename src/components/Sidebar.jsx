@@ -10,7 +10,7 @@ import { InstallAppButton } from "./PwaBanner";
 
 const adminNavItems = [
   { name: "Dashboard", path: "/dashboard", icon: <FiPieChart /> },
-  { name: "Stock Management", path: "/employee-stock", icon: <FiLayers /> },
+  { name: "Stock Management", path: "/stock-management", icon: <FiLayers /> },
   { name: "Products", path: "/products", icon: <FiShoppingBag /> },
   { name: "Add Product", path: "/add-product", icon: <FiPlus /> },
   { name: "Reports", path: "/reports", icon: <FiFileText /> },
@@ -22,7 +22,7 @@ const adminNavItems = [
 
 const employeeNavItems = [
   { name: "Dashboard", path: "/employee-dashboard", icon: <FiPieChart /> },
-  { name: "My Stock", path: "/employee-stock", icon: <FiLayers /> },
+  { name: "My Stock", path: "/stock-management", icon: <FiLayers /> },
   { name: "Create Invoice", path: "/invoice", icon: <FiFileText /> },
   { name: "My Expenses", path: "/expenses", icon: <FiDollarSign /> },
   { name: "My Profile", path: "/profile", icon: <FiUser /> },

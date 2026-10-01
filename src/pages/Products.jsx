@@ -23,6 +23,7 @@ import {
 import ProductCard from "../components/ProductCard";
 import CategoryModal from "../components/CategoryModal";
 import toast, { Toaster } from "react-hot-toast";
+import { calculateAdminCentralStock } from "../utils/calculations";
 
 const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } };
 const itemVariants = { hidden: { y: 20, opacity: 0 }, show: { y: 0, opacity: 1, transition: { type: "spring", stiffness: 300, damping: 24 } } };
@@ -33,6 +34,8 @@ const Products = () => {
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [stockIssues, setStockIssues] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Modals & Drawers
@@ -47,9 +50,12 @@ const Products = () => {
   const [categorySearchQuery, setCategorySearchQuery] = useState("");
   const [categoryStatusFilter, setCategoryStatusFilter] = useState("all");
 
-  // Fetch Products
+  // Fetch Products, Stock Issues, and Invoices
   useEffect(() => {
     const productRef = ref(db, "products");
+    const issuesRef = ref(db, "employeeStockIssues");
+    const invRef = ref(db, "invoices");
+
     const unsubProd = onValue(productRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -60,8 +66,53 @@ const Products = () => {
       setLoading(false);
     });
 
-    return () => unsubProd();
+    const unsubIssues = onValue(issuesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setStockIssues(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
+      } else {
+        setStockIssues([]);
+      }
+    });
+
+    const unsubInv = onValue(invRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setInvoices(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
+      } else {
+        setInvoices([]);
+      }
+    });
+
+    return () => {
+      unsubProd();
+      unsubIssues();
+      unsubInv();
+    };
   }, []);
+
+  // Compute live Central Company Stock for products from single source of truth
+  const productsWithLiveStock = useMemo(() => {
+    const adminStockCalc = calculateAdminCentralStock({
+      productsList: products,
+      stockIssues,
+      invoices
+    });
+
+    return products.map((prod) => {
+      const stockData = adminStockCalc.adminStockMap[prod.id];
+      const liveStock = stockData ? stockData.currentAdminStock : 0;
+      const liveUnit = stockData?.unit || prod.unit || "KG";
+      const liveStatus = liveStock > 0 ? "Available" : "Out of Stock";
+
+      return {
+        ...prod,
+        currentAdminStock: liveStock,
+        unit: liveUnit,
+        status: liveStatus
+      };
+    });
+  }, [products, stockIssues, invoices]);
 
   // Fetch Categories from Firebase RTDB
   useEffect(() => {
@@ -230,11 +281,10 @@ const Products = () => {
               <button
                 type="button"
                 onClick={() => setShowCategoryManager(!showCategoryManager)}
-                className={`px-5 py-3.5 rounded-2xl flex items-center justify-center gap-2 font-bold text-sm transition-all cursor-pointer ${
-                  showCategoryManager
+                className={`px-5 py-3.5 rounded-2xl flex items-center justify-center gap-2 font-bold text-sm transition-all cursor-pointer ${showCategoryManager
                     ? "bg-[#D4AF37] text-[#111] shadow-md"
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
+                  }`}
               >
                 <FiLayers className="text-lg" /> {showCategoryManager ? "Hide Categories" : "Manage Categories"} ({categories.length})
               </button>
@@ -328,16 +378,14 @@ const Products = () => {
                           </td>
                           <td className="py-4 px-6">
                             <span
-                              className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5 ${
-                                cat.status === "active"
+                              className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5 ${cat.status === "active"
                                   ? "bg-green-100 text-green-700"
                                   : "bg-red-100 text-red-700"
-                              }`}
+                                }`}
                             >
                               <span
-                                className={`w-2 h-2 rounded-full ${
-                                  cat.status === "active" ? "bg-green-500" : "bg-red-500"
-                                }`}
+                                className={`w-2 h-2 rounded-full ${cat.status === "active" ? "bg-green-500" : "bg-red-500"
+                                  }`}
                               />
                               {cat.status === "active" ? "Active" : "Inactive"}
                             </span>
@@ -360,11 +408,10 @@ const Products = () => {
                                 type="button"
                                 onClick={() => handleToggleCategoryStatus(cat)}
                                 title={cat.status === "active" ? "Deactivate Category" : "Activate Category"}
-                                className={`p-2 rounded-xl transition-colors cursor-pointer ${
-                                  cat.status === "active"
+                                className={`p-2 rounded-xl transition-colors cursor-pointer ${cat.status === "active"
                                     ? "text-red-500 hover:bg-red-50"
                                     : "text-green-600 hover:bg-green-50"
-                                }`}
+                                  }`}
                               >
                                 {cat.status === "active" ? (
                                   <FiXCircle className="text-base" />
@@ -416,15 +463,15 @@ const Products = () => {
         </motion.div>
       ) : (
         <motion.div variants={containerVariants} initial="hidden" animate="show" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {products.map((product) => (
+          {productsWithLiveStock.map((product) => (
             <motion.div
               variants={itemVariants}
               key={product.id}
             >
-              <ProductCard 
-                product={product} 
-                onEdit={(p) => setEditingProduct(p)} 
-                onDelete={(id) => setDeletingProductId(id)} 
+              <ProductCard
+                product={product}
+                onEdit={(p) => setEditingProduct(p)}
+                onDelete={(id) => setDeletingProductId(id)}
               />
             </motion.div>
           ))}
@@ -439,7 +486,7 @@ const Products = () => {
               <FiX className="text-xl" />
             </button>
             <h2 className="text-2xl font-bold text-[#111] mb-6 font-['Poppins']">Edit Product</h2>
-            
+
             <form onSubmit={handleUpdate} className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="md:col-span-2 flex flex-col items-center mb-4">
                 <div className="w-32 h-32 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center relative overflow-hidden group hover:border-[#D4AF37]/50 transition-colors">
@@ -455,7 +502,7 @@ const Products = () => {
 
               <div>
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Product Name</label>
-                <input type="text" value={editingProduct.productName} onChange={(e) => setEditingProduct({...editingProduct, productName: e.target.value})} className="w-full bg-gray-50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-xl text-sm font-semibold text-[#111] p-3 outline-none transition-all" required />
+                <input type="text" value={editingProduct.productName} onChange={(e) => setEditingProduct({ ...editingProduct, productName: e.target.value })} className="w-full bg-gray-50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-xl text-sm font-semibold text-[#111] p-3 outline-none transition-all" required />
               </div>
 
               <div>
@@ -479,12 +526,12 @@ const Products = () => {
 
               <div>
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Selling Price (₹)</label>
-                <input type="number" min="0" value={editingProduct.sellingPrice} onChange={(e) => setEditingProduct({...editingProduct, sellingPrice: e.target.value})} className="w-full bg-gray-50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-xl text-sm font-semibold text-[#111] p-3 outline-none transition-all" required />
+                <input type="number" min="0" value={editingProduct.sellingPrice} onChange={(e) => setEditingProduct({ ...editingProduct, sellingPrice: e.target.value })} className="w-full bg-gray-50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-xl text-sm font-semibold text-[#111] p-3 outline-none transition-all" required />
               </div>
 
               <div>
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Status</label>
-                <select value={editingProduct.status || "Available"} onChange={(e) => setEditingProduct({...editingProduct, status: e.target.value})} className="w-full bg-gray-50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-xl text-sm font-semibold text-[#111] p-3 outline-none transition-all cursor-pointer">
+                <select value={editingProduct.status || "Available"} onChange={(e) => setEditingProduct({ ...editingProduct, status: e.target.value })} className="w-full bg-gray-50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-xl text-sm font-semibold text-[#111] p-3 outline-none transition-all cursor-pointer">
                   <option value="Available">Available</option>
                   <option value="Out of Stock">Out of Stock</option>
                 </select>
@@ -492,14 +539,14 @@ const Products = () => {
 
               <div className="flex items-center justify-between bg-gray-50 p-3 rounded-xl">
                 <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">Featured</span>
-                <input type="checkbox" checked={editingProduct.featured || false} onChange={(e) => setEditingProduct({...editingProduct, featured: e.target.checked})} className="w-5 h-5 accent-[#D4AF37] cursor-pointer" />
+                <input type="checkbox" checked={editingProduct.featured || false} onChange={(e) => setEditingProduct({ ...editingProduct, featured: e.target.checked })} className="w-5 h-5 accent-[#D4AF37] cursor-pointer" />
               </div>
 
               <div className="md:col-span-2">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Description</label>
-                <textarea value={editingProduct.description || ""} onChange={(e) => setEditingProduct({...editingProduct, description: e.target.value})} rows="2" className="w-full bg-gray-50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-xl text-sm font-semibold text-[#111] p-3 outline-none transition-all resize-none"></textarea>
+                <textarea value={editingProduct.description || ""} onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })} rows="2" className="w-full bg-gray-50 border border-transparent focus:bg-white focus:border-[#D4AF37]/40 rounded-xl text-sm font-semibold text-[#111] p-3 outline-none transition-all resize-none"></textarea>
               </div>
-              
+
               <div className="md:col-span-2 pt-4 flex gap-4">
                 <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 bg-gray-100 text-gray-600 py-4 rounded-xl font-bold hover:bg-gray-200 transition-colors cursor-pointer">Cancel</button>
                 <button type="submit" disabled={saving} className="flex-1 bg-[#111] text-[#D4AF37] py-4 rounded-xl font-bold hover:bg-black transition-colors flex justify-center items-center gap-2 disabled:opacity-70 cursor-pointer">

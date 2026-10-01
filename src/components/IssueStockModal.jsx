@@ -1,15 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { db } from "../firebase";
 import { ref, push, update } from "firebase/database";
 import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
 import { FiX, FiPackage, FiUser, FiCalendar, FiFileText, FiSave, FiPlus, FiTrash2, FiDollarSign, FiLayers } from "react-icons/fi";
+import { calculateAdminCentralStock } from "../utils/calculations";
 
 export default function IssueStockModal({
   isOpen,
   onClose,
   employeesList = [],
   productsList = [],
+  stockIssues = [],
+  invoices = [],
   editingIssue = null
 }) {
   const { currentUser, userProfile } = useAuth();
@@ -21,6 +24,16 @@ export default function IssueStockModal({
     { id: 1, productId: "", productName: "", quantity: 1, unit: "units", price: 0, lineValue: 0 }
   ]);
   const [saving, setSaving] = useState(false);
+
+  // Live Admin Stock Engine Single Source of Truth
+  const adminStockCalc = useMemo(() => {
+    if (!isOpen) return { adminStockMap: {} };
+    return calculateAdminCentralStock({
+      productsList,
+      stockIssues,
+      invoices
+    });
+  }, [isOpen, productsList, stockIssues, invoices]);
 
   useEffect(() => {
     if (editingIssue) {
@@ -324,7 +337,9 @@ export default function IssueStockModal({
             <div className="space-y-3">
               {items.map((item, index) => {
                 const selectedProd = productsList.find((p) => p.id === item.productId);
-                const availableCompanyStock = Number(selectedProd?.stock ?? selectedProd?.companyStock ?? 0);
+                const liveProdStock = item.productId ? adminStockCalc.adminStockMap[item.productId] : null;
+                const availableCompanyStock = Number(liveProdStock?.currentAdminStock ?? selectedProd?.currentAdminStock ?? 0);
+                const stockUnit = liveProdStock?.unit || selectedProd?.unit || item.unit || "units";
 
                 return (
                   <div
@@ -337,7 +352,7 @@ export default function IssueStockModal({
                       </span>
                       {selectedProd && (
                         <span className="text-[11px] font-semibold text-gray-500 bg-white px-3 py-1 rounded-full border border-gray-200 shadow-sm">
-                          Central Stock: <span className="font-bold text-[#111]">{availableCompanyStock} units</span>
+                          Central Stock: <span className="font-bold text-[#111]">{availableCompanyStock} {stockUnit}</span>
                         </span>
                       )}
                     </div>
