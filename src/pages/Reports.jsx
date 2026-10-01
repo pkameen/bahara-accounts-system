@@ -53,6 +53,14 @@ import {
 
 const CHART_COLORS = ['#D4AF37', '#111111', '#10B981', '#F59E0B', '#6366F1', '#EC4899', '#8B5CF6', '#3B82F6'];
 
+const safeNum = (val) => {
+  const num = Number(val);
+  return isNaN(num) ? 0 : num;
+};
+
+const formatCurrency = (val) => safeNum(val).toLocaleString('en-IN');
+const formatNumber = (val) => safeNum(val).toLocaleString('en-IN');
+
 const Reports = () => {
   const { isAdmin } = useAuth();
   const [sales, setSales] = useState([]);
@@ -159,7 +167,8 @@ const Reports = () => {
   // Sync currently viewed detail employee when report recalculates
   const currentDetailEmployee = useMemo(() => {
     if (!selectedDetailEmployee) return null;
-    return adminStockReport.employeesReport.find(e => e.uid === selectedDetailEmployee.uid) || selectedDetailEmployee;
+    const empList = adminStockReport?.employeesReport || [];
+    return empList.find(e => e.uid === selectedDetailEmployee.uid) || selectedDetailEmployee;
   }, [selectedDetailEmployee, adminStockReport]);
 
   // Centralized Filter and Calculation Logic for General Analytics
@@ -186,10 +195,10 @@ const Reports = () => {
     const filterData = (dataList, isExpense = false) => {
       dataList.forEach((item) => {
         let dateVal = item.createdAt || Date.now();
-        if (!isExpense && item.invoiceDate) {
+        if (!isExpense && item.invoiceDate && typeof item.invoiceDate === "string" && item.invoiceDate.includes("-")) {
           const [year, month, day] = item.invoiceDate.split('-');
           dateVal = new Date(year, month - 1, day).getTime();
-        } else if (isExpense && item.expenseDate) {
+        } else if (isExpense && item.expenseDate && typeof item.expenseDate === "string" && item.expenseDate.includes("-")) {
           const [year, month, day] = item.expenseDate.split('-');
           dateVal = new Date(year, month - 1, day).getTime();
         }
@@ -267,7 +276,7 @@ const Reports = () => {
 
     currentSales.forEach((sale) => {
       let saleDateVal = sale.createdAt || 0;
-      if (sale.invoiceDate) {
+      if (sale.invoiceDate && typeof sale.invoiceDate === "string" && sale.invoiceDate.includes("-")) {
         const [year, month, day] = sale.invoiceDate.split('-');
         saleDateVal = new Date(year, month - 1, day).getTime();
       }
@@ -282,7 +291,8 @@ const Reports = () => {
         pCount += 1;
       }
 
-      (sale.products || []).forEach(p => {
+      const saleProds = Array.isArray(sale.products) ? sale.products : (sale.products && typeof sale.products === 'object' ? Object.values(sale.products) : []);
+      saleProds.forEach(p => {
         const qty = Number(p.quantity) || 0;
         items += qty;
 
@@ -352,7 +362,7 @@ const Reports = () => {
 
     filteredSales.forEach(sale => {
       let saleDateVal = sale.createdAt || 0;
-      if (sale.invoiceDate) {
+      if (sale.invoiceDate && typeof sale.invoiceDate === "string" && sale.invoiceDate.includes("-")) {
         const [year, month, day] = sale.invoiceDate.split('-');
         saleDateVal = new Date(year, month - 1, day).getTime();
       }
@@ -363,7 +373,8 @@ const Reports = () => {
         chartMap[dateStr] = { date: dateStr, rawDate: saleDateVal, Qty: 0, Revenue: 0 };
       }
 
-      const pMatch = (sale.products || []).find(p => p.productId === targetId);
+      const saleProds = Array.isArray(sale.products) ? sale.products : (sale.products && typeof sale.products === 'object' ? Object.values(sale.products) : []);
+      const pMatch = saleProds.find(p => p.productId === targetId);
       if (pMatch) {
         const qty = Number(pMatch.quantity) || 0;
         const rev = Number(pMatch.total || 0);
@@ -415,8 +426,9 @@ const Reports = () => {
       const updates = {};
       updates[`invoices/${deletingInvoiceId}`] = null;
 
-      if (invToDelete && invToDelete.products) {
-        invToDelete.products.forEach(p => {
+      const delProds = Array.isArray(invToDelete.products) ? invToDelete.products : (invToDelete.products && typeof invToDelete.products === 'object' ? Object.values(invToDelete.products) : []);
+      if (invToDelete && delProds.length > 0) {
+        delProds.forEach(p => {
           if (p.productId) {
             const dbProd = products.find(prod => prod.id === p.productId);
             if (dbProd) {
@@ -640,11 +652,10 @@ const Reports = () => {
                   <button
                     key={f.id}
                     onClick={() => setReportFilterType(f.id)}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                      reportFilterType === f.id
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${reportFilterType === f.id
                         ? "bg-[#111] text-[#D4AF37] shadow-md"
                         : "text-gray-500 hover:text-[#111] hover:bg-gray-200/60"
-                    }`}
+                      }`}
                   >
                     {f.label}
                   </button>
@@ -733,15 +744,15 @@ const Reports = () => {
             </div>
             <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Revenue</span>
-              <span className="text-lg font-bold text-green-600 font-['Poppins']">₹{adminStockReport.summary.totalRevenue.toLocaleString('en-IN')}</span>
+              <span className="text-lg font-bold text-green-600 font-['Poppins']">₹{(adminStockReport?.summary?.totalRevenue || 0).toLocaleString('en-IN')}</span>
             </div>
             <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Expenses</span>
-              <span className="text-lg font-bold text-red-500 font-['Poppins']">₹{adminStockReport.summary.totalExpenses.toLocaleString('en-IN')}</span>
+              <span className="text-lg font-bold text-red-500 font-['Poppins']">₹{(adminStockReport?.summary?.totalExpenses || 0).toLocaleString('en-IN')}</span>
             </div>
             <div className="bg-[#111] text-[#D4AF37] rounded-2xl p-3.5 text-center shadow-md">
               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Net Balance</span>
-              <span className="text-lg font-bold font-['Poppins']">₹{adminStockReport.summary.netBalance.toLocaleString('en-IN')}</span>
+              <span className="text-lg font-bold font-['Poppins']">₹{(adminStockReport?.summary?.netBalance || 0).toLocaleString('en-IN')}</span>
             </div>
           </div>
 
@@ -785,7 +796,7 @@ const Reports = () => {
                       <td className="p-4 text-right text-gray-700 font-bold">{emp.issuedDuringPeriod}</td>
                       <td className="p-4 text-right text-[#D4AF37] font-bold">{emp.soldDuringPeriod}</td>
                       <td className="p-4 text-right text-amber-800 font-bold">{emp.remainingStock}</td>
-                      <td className="p-4 text-right text-green-600 font-bold">₹{emp.revenue.toLocaleString('en-IN')}</td>
+                      <td className="p-4 text-right text-green-600 font-bold">₹{(emp.revenue || 0).toLocaleString('en-IN')}</td>
                       <td className="p-4 text-center">
                         <div className="flex flex-col items-center">
                           <span className="font-bold text-xs text-[#111]">{emp.salesPercentageFormatted}</span>
@@ -797,10 +808,10 @@ const Reports = () => {
                           </div>
                         </div>
                       </td>
-                      <td className="p-4 text-right text-red-500 font-bold">₹{emp.expenses.toLocaleString('en-IN')}</td>
+                      <td className="p-4 text-right text-red-500 font-bold">₹{(emp.expenses || 0).toLocaleString('en-IN')}</td>
                       <td className="p-4 text-right font-bold">
                         <span className={`px-2.5 py-1 rounded-full text-xs ${emp.netBalance >= 0 ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-                          ₹{emp.netBalance.toLocaleString('en-IN')}
+                          ₹{(emp.netBalance || 0).toLocaleString('en-IN')}
                         </span>
                       </td>
                       <td className="p-4 text-center">
@@ -867,15 +878,15 @@ const Reports = () => {
                   <div className="flex items-center justify-between pt-2 text-xs">
                     <div>
                       <span className="text-[10px] text-gray-400 block font-bold">Revenue</span>
-                      <span className="font-bold text-green-600">₹{emp.revenue.toLocaleString('en-IN')}</span>
+                      <span className="font-bold text-green-600">₹{(emp.revenue || 0).toLocaleString('en-IN')}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-gray-400 block font-bold">Expenses</span>
-                      <span className="font-bold text-red-500">₹{emp.expenses.toLocaleString('en-IN')}</span>
+                      <span className="font-bold text-red-500">₹{(emp.expenses || 0).toLocaleString('en-IN')}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-gray-400 block font-bold">Net Balance</span>
-                      <span className="font-bold text-[#111]">₹{emp.netBalance.toLocaleString('en-IN')}</span>
+                      <span className="font-bold text-[#111]">₹{(emp.netBalance || 0).toLocaleString('en-IN')}</span>
                     </div>
                   </div>
                 </div>
@@ -971,15 +982,15 @@ const Reports = () => {
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Revenue</span>
-                  <span className="text-base font-bold text-green-600">₹{currentDetailEmployee.revenue.toLocaleString('en-IN')}</span>
+                  <span className="text-base font-bold text-green-600">₹{(currentDetailEmployee.revenue || 0).toLocaleString('en-IN')}</span>
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Expenses</span>
-                  <span className="text-base font-bold text-red-500">₹{currentDetailEmployee.expenses.toLocaleString('en-IN')}</span>
+                  <span className="text-base font-bold text-red-500">₹{(currentDetailEmployee.expenses || 0).toLocaleString('en-IN')}</span>
                 </div>
                 <div className="bg-[#111] text-[#D4AF37] rounded-2xl p-3 text-center">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Net Balance</span>
-                  <span className="text-base font-bold">₹{currentDetailEmployee.netBalance.toLocaleString('en-IN')}</span>
+                  <span className="text-base font-bold">₹{(currentDetailEmployee.netBalance || 0).toLocaleString('en-IN')}</span>
                 </div>
               </div>
 
@@ -994,8 +1005,8 @@ const Reports = () => {
                   </div>
 
                   {currentDetailEmployee.productsList.length > 0 && currentDetailEmployee.soldDuringPeriod > 0 ? (
-                    <div className="h-[240px] w-full flex items-center">
-                      <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[240px] w-full min-w-0 flex items-center relative overflow-hidden">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                         <PieChart>
                           <Pie
                             data={currentDetailEmployee.productsList.filter(p => p.soldDuringPeriod > 0)}
@@ -1039,7 +1050,7 @@ const Reports = () => {
                     </h4>
                     <p className="text-xs text-gray-400 mt-1">
                       {currentDetailEmployee.productsList.length > 0 && currentDetailEmployee.productsList[0].soldDuringPeriod > 0
-                        ? `${currentDetailEmployee.productsList[0].soldDuringPeriod} pcs sold • ₹${currentDetailEmployee.productsList[0].revenue.toLocaleString('en-IN')}`
+                        ? `${currentDetailEmployee.productsList[0].soldDuringPeriod} pcs sold • ₹${(currentDetailEmployee.productsList[0].revenue || 0).toLocaleString('en-IN')}`
                         : "No sales logged for this employee."}
                     </p>
                   </div>
@@ -1112,7 +1123,7 @@ const Reports = () => {
                                 </div>
                               </div>
                             </td>
-                            <td className="p-4 text-right text-green-600 font-bold">₹{prod.revenue.toLocaleString('en-IN')}</td>
+                            <td className="p-4 text-right text-green-600 font-bold">₹{(prod.revenue || 0).toLocaleString('en-IN')}</td>
                           </tr>
                         ))
                       ) : (
@@ -1224,7 +1235,7 @@ const Reports = () => {
 
               <div className="bg-[#111] text-[#D4AF37] p-4 rounded-2xl text-center">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">Total Product Revenue</span>
-                <span className="text-2xl font-bold font-['Poppins']">₹{selectedDrilldownProduct.revenue.toLocaleString('en-IN')}</span>
+                <span className="text-2xl font-bold font-['Poppins']">₹{(selectedDrilldownProduct.revenue || 0).toLocaleString('en-IN')}</span>
               </div>
             </motion.div>
           </div>
@@ -1237,23 +1248,30 @@ const Reports = () => {
         {/* 1. Revenue Trend Area Chart */}
         <div className="bg-white premium-shadow border border-gray-100 rounded-[30px] p-8 w-full">
           <h3 className="text-xl font-bold text-[#111] mb-6 tracking-tight font-['Poppins']">Revenue Trend</h3>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorTurnover" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 12, fontWeight: 600 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 12, fontWeight: 600 }} tickFormatter={(val) => `₹${val}`} />
-                <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 40px -10px rgba(0,0,0,0.1)', fontWeight: 'bold', color: '#111' }} />
-                <Area type="monotone" dataKey="Revenue" stroke="#111" strokeWidth={3} fillOpacity={1} fill="url(#colorTurnover)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          {chartData.length > 0 ? (
+            <div className="h-[300px] w-full min-w-0 relative overflow-hidden">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorTurnover" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 12, fontWeight: 600 }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 12, fontWeight: 600 }} tickFormatter={(val) => `₹${val}`} />
+                  <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 40px -10px rgba(0,0,0,0.1)', fontWeight: 'bold', color: '#111' }} />
+                  <Area type="monotone" dataKey="Revenue" stroke="#111" strokeWidth={3} fillOpacity={1} fill="url(#colorTurnover)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="h-[200px] w-full flex flex-col items-center justify-center text-center text-gray-400">
+              <FiTrendingDown className="text-4xl mb-2 text-gray-200" />
+              <p className="font-semibold text-xs text-gray-500">No revenue data available for the selected period.</p>
+            </div>
+          )}
         </div>
 
         {/* 2. By Salesman Revenue Donut Chart */}
@@ -1379,34 +1397,34 @@ const Reports = () => {
                       </td>
 
                       <td className="p-4 sm:p-5 text-right font-bold text-[#111] font-['Poppins']">
-                        {emp.totalIssued.toLocaleString('en-IN')}
+                        {formatNumber(emp.totalIssued)}
                       </td>
 
                       <td className="p-4 sm:p-5 text-right font-bold text-[#D4AF37] font-['Poppins']">
-                        {emp.totalSold.toLocaleString('en-IN')}
+                        {formatNumber(emp.totalSold)}
                       </td>
 
                       <td className="p-4 sm:p-5 text-right font-bold font-['Poppins']">
-                        <span className={`px-2.5 py-1 rounded-full text-xs ${emp.currentBalance < 0 ? "bg-red-50 text-red-600 font-bold" : "text-[#111]"}`}>
-                          {emp.currentBalance.toLocaleString('en-IN')}
+                        <span className={`px-2.5 py-1 rounded-full text-xs ${safeNum(emp.currentBalance) < 0 ? "bg-red-50 text-red-600 font-bold" : "text-[#111]"}`}>
+                          {formatNumber(emp.currentBalance)}
                         </span>
                       </td>
 
                       <td className="p-4 sm:p-5 text-right font-bold text-gray-700 font-['Poppins']">
-                        ₹{emp.totalStockValue.toLocaleString('en-IN')}
+                        ₹{formatCurrency(emp.totalStockValue)}
                       </td>
 
                       <td className="p-4 sm:p-5 text-right font-bold text-green-600 font-['Poppins']">
-                        ₹{emp.totalSalesValue.toLocaleString('en-IN')}
+                        ₹{formatCurrency(emp.totalSalesValue)}
                       </td>
 
                       <td className="p-4 sm:p-5 text-center font-bold text-amber-700 font-['Poppins']">
-                        {emp.overallUtilizationFormatted}
+                        {emp.overallUtilizationFormatted || "0%"}
                       </td>
 
                       <td className="p-4 sm:p-5 text-center">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${emp.status.color}`}>
-                          {emp.status.icon} {emp.status.label}
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${emp.status?.color || "bg-green-100 text-green-700 border-green-200"}`}>
+                          {emp.status?.icon || "✅"} {emp.status?.label || "Normal"}
                         </span>
                       </td>
                     </tr>
@@ -1489,9 +1507,9 @@ const Reports = () => {
             {/* Product Sales Graph */}
             <div className="lg:col-span-8 bg-white premium-shadow border border-gray-100 rounded-[30px] p-8 flex flex-col">
               <h3 className="text-lg font-bold text-[#111] mb-6 tracking-tight">Product Sales Trend</h3>
-              <div className="flex-1 min-h-[300px] w-full">
+              <div className="flex-1 min-h-[300px] w-full relative overflow-hidden">
                 {productAnalytics.chartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <BarChart data={productAnalytics.chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
                       <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 12, fontWeight: 600 }} dy={10} />

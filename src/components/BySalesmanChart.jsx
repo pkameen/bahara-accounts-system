@@ -85,8 +85,8 @@ export default function BySalesmanChart({ invoices = [], employees = [], title =
 
           {/* Donut Chart View (5 cols on lg) */}
           <div className="lg:col-span-5 flex flex-col items-center justify-center relative">
-            <div className="w-full h-[260px] sm:h-[280px] relative">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="w-full h-[260px] sm:h-[280px] relative overflow-hidden">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <PieChart>
                   <Pie
                     data={salespeople}

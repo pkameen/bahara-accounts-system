@@ -242,10 +242,10 @@ export default function EmployeeDashboard() {
             </span>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Total Issued</span>
-            <span className="text-xl font-bold text-[#111] font-['Poppins']">
-              {myStockRecon?.totalIssued || 0} <span className="text-xs text-gray-400 font-normal">units</span>
+          <div className="bg-blue-50/60 p-4 rounded-2xl border border-blue-100 shadow-sm">
+            <span className="text-[10px] font-bold text-blue-800 uppercase tracking-widest block mb-1">Total Issued</span>
+            <span className="text-xl font-bold text-blue-600 font-['Poppins']">
+              {myStockRecon?.totalIssued || 0} <span className="text-xs text-blue-400 font-normal">units</span>
             </span>
           </div>
 
@@ -281,57 +281,60 @@ export default function EmployeeDashboard() {
         {/* MY PRODUCT STOCK CARDS */}
         {myStockRecon?.productList && myStockRecon.productList.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {myStockRecon.productList.map((prod) => (
-              <div
-                key={prod.productId}
-                className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:border-[#D4AF37]/50 transition-all flex flex-col justify-between"
-              >
-                <div className="flex items-start justify-between gap-3 mb-4">
-                  <div className="flex items-center gap-3">
-                    {prod.image ? (
-                      <img src={prod.image} alt={prod.productName} className="w-11 h-11 rounded-xl object-cover border border-gray-200 shrink-0" />
-                    ) : (
-                      <div className="w-11 h-11 rounded-xl bg-gray-100 text-gray-400 flex items-center justify-center text-lg border border-gray-200 shrink-0">
-                        <FiPackage />
+            {myStockRecon.productList.map((prod) => {
+              const issuedQty = prod.issued ?? ((prod.receivedFromCompany || 0) + (prod.receivedFromEmployees || 0));
+              return (
+                <div
+                  key={prod.productId}
+                  className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:border-[#D4AF37]/50 transition-all flex flex-col justify-between"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-4">
+                    <div className="flex items-center gap-3">
+                      {prod.image ? (
+                        <img src={prod.image} alt={prod.productName} className="w-11 h-11 rounded-xl object-cover border border-gray-200 shrink-0" />
+                      ) : (
+                        <div className="w-11 h-11 rounded-xl bg-gray-100 text-gray-400 flex items-center justify-center text-lg border border-gray-200 shrink-0">
+                          <FiPackage />
+                        </div>
+                      )}
+                      <div>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">{prod.category}</span>
+                        <h4 className="font-bold text-[#111] text-base font-['Poppins']">{prod.productName}</h4>
                       </div>
-                    )}
-                    <div>
-                      <span className="text-[9px] text-gray-400 font-bold uppercase">{prod.category}</span>
-                      <h4 className="font-bold text-[#111] text-base font-['Poppins']">{prod.productName}</h4>
                     </div>
-                  </div>
-                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border shrink-0 ${prod.status.color}`}>
-                    {prod.status.label}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-4 gap-2 bg-gray-50/80 p-3 rounded-xl border border-gray-100 text-center mb-3">
-                  <div>
-                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block">Issued</span>
-                    <span className="text-sm font-bold text-[#111] font-['Poppins']">{prod.issued}</span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block">Sold</span>
-                    <span className="text-sm font-bold text-[#D4AF37] font-['Poppins']">{prod.sold}</span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block">Balance</span>
-                    <span className={`text-sm font-bold font-['Poppins'] ${prod.balance < 0 ? "text-red-600" : "text-[#111]"}`}>
-                      {prod.balance}
+                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border shrink-0 ${prod.status?.color || "bg-gray-100 text-gray-700"}`}>
+                      {prod.status?.label || "In Stock"}
                     </span>
                   </div>
-                  <div>
-                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block">Sold %</span>
-                    <span className="text-sm font-bold text-amber-600 font-['Poppins']">{prod.utilizationFormatted}</span>
+
+                  <div className="grid grid-cols-4 gap-2 bg-gray-50/80 p-3 rounded-xl border border-gray-100 text-center mb-3">
+                    <div className="bg-blue-50/50 rounded-lg p-1.5 border border-blue-100/50">
+                      <span className="text-[9px] font-bold text-blue-700 uppercase tracking-widest block">Issued</span>
+                      <span className="text-sm font-bold text-blue-600 font-['Poppins']">{issuedQty}</span>
+                    </div>
+                    <div className="bg-amber-50/50 rounded-lg p-1.5 border border-amber-100/50">
+                      <span className="text-[9px] font-bold text-amber-800 uppercase tracking-widest block">Sold</span>
+                      <span className="text-sm font-bold text-[#D4AF37] font-['Poppins']">{prod.sold || 0}</span>
+                    </div>
+                    <div className={`rounded-lg p-1.5 border ${prod.balance < 0 ? "bg-red-50 border-red-100" : "bg-emerald-50/50 border-emerald-100/50"}`}>
+                      <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block">Balance</span>
+                      <span className={`text-sm font-bold font-['Poppins'] ${prod.balance < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                        {prod.balance || 0}
+                      </span>
+                    </div>
+                    <div className="bg-purple-50/50 rounded-lg p-1.5 border border-purple-100/50">
+                      <span className="text-[9px] font-bold text-purple-700 uppercase tracking-widest block">Sold %</span>
+                      <span className="text-sm font-bold text-purple-600 font-['Poppins']">{prod.utilizationFormatted || "0%"}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs font-semibold text-gray-500 border-t border-gray-100 pt-2.5">
+                    <span>Stock Value: <strong className="text-green-600">₹{(prod.stockValue || 0).toLocaleString('en-IN')}</strong></span>
+                    <span>Rate: <strong className="text-[#111]">₹{(prod.unitPrice || 0).toLocaleString('en-IN')}</strong></span>
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between text-xs font-semibold text-gray-500 border-t border-gray-100 pt-2.5">
-                  <span>Stock Value: <strong className="text-green-600">₹{prod.stockValue.toLocaleString('en-IN')}</strong></span>
-                  <span>Share: <strong className="text-[#111]">{prod.salesShareFormatted}</strong></span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="p-8 text-center text-gray-400 font-medium bg-white rounded-2xl border border-gray-100">

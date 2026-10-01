@@ -20,7 +20,7 @@ export const filterItemsByDate = (items, filterType = "today", startDate = "", e
 
   return items.filter(item => {
     let dateVal = item[dateKey] || Date.now();
-    if (altDateKey && item[altDateKey]) {
+    if (altDateKey && item[altDateKey] && typeof item[altDateKey] === "string" && item[altDateKey].includes("-")) {
       const [year, month, day] = item[altDateKey].split('-');
       if (year && month && day) {
         dateVal = new Date(year, month - 1, day).getTime();
@@ -79,7 +79,7 @@ export const calculateMetrics = ({
       pendingTotal += amount;
     }
 
-    const products = inv.products || [];
+    const products = Array.isArray(inv.products) ? inv.products : (inv.products && typeof inv.products === 'object' ? Object.values(inv.products) : []);
     products.forEach(p => {
       const qty = Number(p.quantity) || 0;
       totalItemsSold += qty;
@@ -175,7 +175,8 @@ export const calculateTopSalesEmployees = (invoices = [], expenses = [], employe
       empMap[creatorUid].totalSales += amount;
       empMap[creatorUid].invoicesCount += 1;
 
-      (inv.products || []).forEach(p => {
+      const prods = Array.isArray(inv.products) ? inv.products : (inv.products && typeof inv.products === 'object' ? Object.values(inv.products) : []);
+      prods.forEach(p => {
         const qty = Number(p.quantity) || 0;
         empMap[creatorUid].itemsSold += qty;
         const pName = p.productName || "Unknown Product";
@@ -270,7 +271,7 @@ export const calculateSalesmanRevenue = (invoices = [], employeesList = []) => {
       salesMap[key].paidRevenue += amount;
     }
 
-    const prods = inv.products || [];
+    const prods = Array.isArray(inv.products) ? inv.products : (inv.products && typeof inv.products === 'object' ? Object.values(inv.products) : []);
     prods.forEach((p) => {
       salesMap[key].itemsSold += Number(p.quantity) || 0;
     });
@@ -502,7 +503,7 @@ export const calculateProductSales = (invoices = [], productsList = []) => {
   }
 
   invoices.forEach((inv) => {
-    const products = inv.products || [];
+    const products = Array.isArray(inv.products) ? inv.products : (inv.products && typeof inv.products === 'object' ? Object.values(inv.products) : []);
     products.forEach((lineItem) => {
       const qty = Number(lineItem.quantity) || 0;
       if (qty <= 0) return;
@@ -819,8 +820,10 @@ export const calculateStockLedger = ({
       issue.fromEmployeeId === "admin"
     );
 
-    const items = Array.isArray(issue.products) && issue.products.length > 0
-      ? issue.products
+    const rawProds = issue.products;
+    const issueProds = Array.isArray(rawProds) ? rawProds : (rawProds && typeof rawProds === 'object' ? Object.values(rawProds) : []);
+    const items = issueProds.length > 0
+      ? issueProds
       : (issue.quantity ? [{
         productId: issue.productId,
         productName: issue.productName,
@@ -1061,7 +1064,7 @@ export const calculateStockLedger = ({
         creatorUserId === "admin" ||
         (!creatorUid && creatorName === "Admin");
 
-      const prods = inv.products || [];
+      const prods = Array.isArray(inv.products) ? inv.products : (inv.products && typeof inv.products === 'object' ? Object.values(inv.products) : []);
       prods.forEach((lineItem) => {
         const qty = Number(lineItem.quantity) || 0;
         if (qty <= 0) return;
@@ -1136,25 +1139,36 @@ export const calculateStockLedger = ({
     let empVal = 0;
 
     const productList = Object.values(emp.products).map((p) => {
-      p.balance = (p.receivedFromCompany || 0) + (p.receivedFromEmployees || 0) - (p.transferredToEmployees || 0) - (p.sold || 0);
+      p.issued = (p.receivedFromCompany || 0) + (p.receivedFromEmployees || 0);
+      p.balance = p.issued - (p.transferredToEmployees || 0) - (p.sold || 0);
       p.stockValue = Math.max(0, p.balance) * p.unitPrice;
-      p.utilization = p.receivedFromCompany + p.receivedFromEmployees > 0
-        ? Number(((p.sold / (p.receivedFromCompany + p.receivedFromEmployees)) * 100).toFixed(1))
+      p.utilization = p.issued > 0
+        ? Number(((p.sold / p.issued) * 100).toFixed(1))
         : (p.sold > 0 ? 100 : 0);
       p.utilizationFormatted = `${p.utilization}%`;
 
       p.status = p.balance > 0
-        ? { label: "Available", color: "bg-emerald-100 text-emerald-800 border-emerald-200" }
-        : { label: "Out of Stock", color: "bg-red-100 text-red-800 border-red-200" };
+        ? { label: "In Stock", color: "bg-emerald-100 text-emerald-800 border-emerald-200" }
+        : (p.balance < 0
+          ? { label: "Overdrawn", color: "bg-red-100 text-red-800 border-red-200" }
+          : (p.issued > 0
+            ? { label: "Fully Sold", color: "bg-amber-100 text-amber-800 border-amber-200" }
+            : { label: "No Stock", color: "bg-gray-100 text-gray-700 border-gray-200" }));
 
       empBal += p.balance;
       empVal += p.stockValue;
       return p;
     }).sort((a, b) => b.sold - a.sold || b.balance - a.balance);
 
+    let empSalesVal = 0;
+    (emp.salesRecords || []).forEach((inv) => {
+      empSalesVal += Number(inv.totalAmount || inv.subtotal || 0);
+    });
+
     emp.productList = productList;
     emp.currentBalance = empBal;
     emp.totalStockValue = empVal;
+    emp.totalSalesValue = empSalesVal;
 
     emp.overallUtilization = emp.totalIssued > 0
       ? Number(((emp.totalSold / emp.totalIssued) * 100).toFixed(1))
@@ -1162,8 +1176,8 @@ export const calculateStockLedger = ({
     emp.overallUtilizationFormatted = `${emp.overallUtilization}%`;
 
     emp.status = emp.currentBalance > 0
-      ? { label: "Stock Remaining", color: "bg-amber-100 text-amber-700 border-amber-200" }
-      : { label: "Normal", color: "bg-green-100 text-green-700 border-green-200" };
+      ? { label: "Stock Remaining", color: "bg-amber-100 text-amber-700 border-amber-200", icon: "📦" }
+      : { label: "Normal", color: "bg-green-100 text-green-700 border-green-200", icon: "✅" };
 
     totalEmployeeStockQty += Math.max(0, empBal);
     totalEmployeeStockValue += empVal;
@@ -1430,14 +1444,16 @@ export const calculatePeriodEmployeeStockReport = ({
     if (!uid) return;
 
     let issueTs = issue.createdAt || Date.now();
-    if (issue.date) {
+    if (issue.date && typeof issue.date === "string" && issue.date.includes("-")) {
       const [y, m, d] = issue.date.split('-');
       if (y && m && d) issueTs = new Date(y, m - 1, d).getTime();
     }
 
     const empObj = ensureEmp(uid, issue.employeeName);
-    const items = Array.isArray(issue.products) && issue.products.length > 0
-      ? issue.products
+    const rawProds = issue.products;
+    const issueProds = Array.isArray(rawProds) ? rawProds : (rawProds && typeof rawProds === 'object' ? Object.values(rawProds) : []);
+    const items = issueProds.length > 0
+      ? issueProds
       : (issue.quantity ? [{
         productId: issue.productId,
         productName: issue.productName,
@@ -1501,13 +1517,13 @@ export const calculatePeriodEmployeeStockReport = ({
     if (!uid) return;
 
     let saleTs = inv.createdAt || Date.now();
-    if (inv.invoiceDate) {
+    if (inv.invoiceDate && typeof inv.invoiceDate === "string" && inv.invoiceDate.includes("-")) {
       const [y, m, d] = inv.invoiceDate.split('-');
       if (y && m && d) saleTs = new Date(y, m - 1, d).getTime();
     }
 
     const empObj = ensureEmp(uid, inv.createdByName);
-    const prods = inv.products || [];
+    const prods = Array.isArray(inv.products) ? inv.products : (inv.products && typeof inv.products === 'object' ? Object.values(inv.products) : []);
 
     prods.forEach(p => {
       const qty = Number(p.quantity) || 0;
@@ -1572,7 +1588,7 @@ export const calculatePeriodEmployeeStockReport = ({
     if (!uid) return;
 
     let expTs = exp.createdAt || Date.now();
-    if (exp.date) {
+    if (exp.date && typeof exp.date === "string" && exp.date.includes("-")) {
       const [y, m, d] = exp.date.split('-');
       if (y && m && d) expTs = new Date(y, m - 1, d).getTime();
     }

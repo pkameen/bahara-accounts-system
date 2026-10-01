@@ -13,8 +13,9 @@ export default function ReportTable({ sales = [], hideSearch = false, onEdit, on
       const cName = sale.customerName || sale.customer?.name || "Cash Customer";
       const cPhone = sale.phone || sale.customerPhone || sale.customer?.phone || "";
 
-      if (sale.products && sale.products.length > 0) {
-        sale.products.forEach((p, index) => {
+      const prods = Array.isArray(sale.products) ? sale.products : (sale.products && typeof sale.products === 'object' ? Object.values(sale.products) : []);
+      if (prods.length > 0) {
+        prods.forEach((p, index) => {
           records.push({
             id: `${sale.id}-${index}`,
             invoiceId: sale.id,

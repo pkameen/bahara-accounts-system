@@ -73,13 +73,14 @@ const Expenses = () => {
   // Filter Categories for Dropdown based on Role & Status
   const selectableCategories = useMemo(() => {
     return categories.filter(c => {
+      if (editId && c.id === selectedCategoryId) return true;
       if (c.status !== "active") return false;
       if (role === "employee") {
         return c.allowEmployee !== false; // Authorized for employees if true or undefined
       }
       return true; // Admin can see all active categories
     });
-  }, [categories, role]);
+  }, [categories, role, editId, selectedCategoryId]);
 
   // Fetch Expenses
   useEffect(() => {
@@ -203,7 +204,7 @@ const Expenses = () => {
   // Handle Edit Expense
   const handleEdit = (expense) => {
     setTitle(expense.title || expense.categoryName || "");
-    setAmount(expense.amount);
+    setAmount(expense.amount || "");
     setSelectedCategoryId(expense.categoryId || "");
     setSelectedCategoryName(expense.categoryName || "");
     if (expense.expenseDate) {
@@ -214,6 +215,8 @@ const Expenses = () => {
       setExpenseDate(new Date(d.getTime() - offset).toISOString().split('T')[0]);
     }
     setEditId(expense.id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    toast.success("Loaded expense into editor", { duration: 2000, style: { borderRadius: '14px', background: '#111', color: '#D4AF37' } });
   };
 
   // Delete Expense
@@ -307,9 +310,16 @@ const Expenses = () => {
 
       {/* Expense Input Form Card */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white premium-shadow border border-gray-100 rounded-[30px] p-6 sm:p-8 mb-10">
-        <h3 className="text-lg font-bold text-[#111] mb-4 font-['Poppins']">
-          {editId ? "Edit Expense Entry" : "Record New Expense"}
-        </h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-[#111] font-['Poppins']">
+            {editId ? "Edit Expense Entry" : "Record New Expense"}
+          </h3>
+          {editId && (
+            <span className="bg-[#111] text-[#D4AF37] px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1 shadow-sm">
+              <FiEdit2 className="text-xs" /> Editing Entry
+            </span>
+          )}
+        </div>
 
         <form onSubmit={handleExpense} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4 items-end">
           
