@@ -1136,6 +1136,7 @@ export const calculateStockLedger = ({
   Object.values(employeeStockMap).forEach((emp) => {
     let empBal = 0;
     let empVal = 0;
+    let empIssued = 0;
 
     const productList = Object.values(emp.products).map((p) => {
       p.issued = (p.receivedFromCompany || 0) + (p.receivedFromEmployees || 0);
@@ -1156,6 +1157,7 @@ export const calculateStockLedger = ({
 
       empBal += p.balance;
       empVal += p.stockValue;
+      empIssued += p.issued;
       return p;
     }).sort((a, b) => b.sold - a.sold || b.balance - a.balance);
 
@@ -1165,6 +1167,7 @@ export const calculateStockLedger = ({
     });
 
     emp.productList = productList;
+    emp.totalIssued = empIssued;
     emp.currentBalance = empBal;
     emp.totalStockValue = empVal;
     emp.totalSalesValue = empSalesVal;
@@ -1312,18 +1315,41 @@ export const calculateEmployeeStockReconciliation = ({
     }
   }
 
-  const overallIssued = employeesReconciliation.reduce((sum, e) => {
-    const companyIssuedForEmp = Object.values(e.products || {}).reduce((pSum, p) => pSum + (p.receivedFromCompany || 0), 0);
-    return sum + companyIssuedForEmp;
+  // Total Stock Added into Company / Imported
+  const totalStockAdded = Object.values(ledger.productsLedger).reduce((sum, p) => sum + (p.totalStockAdded || 0), 0);
+
+  // Total Employee Stock Issued
+  const totalEmployeeIssued = employeesReconciliation.reduce((sum, e) => {
+    return sum + (e.totalIssued || 0);
   }, 0);
-  const overallSold = employeesReconciliation.reduce((sum, e) => sum + e.totalSold, 0);
-  const overallBalance = overallIssued - overallSold;
+
+  // Company Stock currently in central warehouse
+  const totalCentralStockQty = ledger.summary.companyStockQty;
+
+  // Overall Issued / Controlled (Stock imported into company or allocated)
+  // Internal transfers move stock from company stock to employee stock without inflating overall total!
+  const overallIssued = targetEmployeeUid
+    ? totalEmployeeIssued
+    : (totalStockAdded > 0 ? totalStockAdded : (totalEmployeeIssued + totalCentralStockQty));
+
+  // Overall Sold across ALL invoices (Admin Direct Sales + Employee Sales)
+  const overallSold = targetEmployeeUid
+    ? employeesReconciliation.reduce((sum, e) => sum + e.totalSold, 0)
+    : Object.values(ledger.productsLedger).reduce((sum, p) => sum + (p.totalSold || 0), 0);
+
+  // Overall Current Stock Balance remaining (Company Stock + Employee Stock Balance)
+  const overallBalance = targetEmployeeUid
+    ? employeesReconciliation.reduce((sum, e) => sum + e.currentBalance, 0)
+    : (ledger.summary.companyStockQty + ledger.summary.employeeStockQty);
+
   const overallStockUtilization = overallIssued > 0 ? Number(((overallSold / overallIssued) * 100).toFixed(1)) : 0;
   const overallStockUtilizationFormatted = `${overallStockUtilization}%`;
   const totalEmployeeStockValue = employeesReconciliation.reduce((sum, e) => sum + e.totalStockValue, 0);
 
   return {
     employees: employeesReconciliation,
+    totalStockAdded,
+    totalEmployeeIssued,
     overallIssued,
     overallSold,
     overallBalance,

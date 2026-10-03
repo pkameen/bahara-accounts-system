@@ -1037,7 +1037,7 @@ export default function StockManagement() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {reconEmployees.map((emp) => {
               const activeAssignedProds = Object.values(emp.products || {}).filter(
-                (p) => p.balance !== 0 || p.receivedFromCompany > 0 || p.sold > 0
+                (p) => p.balance !== 0 || (p.issued || 0) > 0 || p.sold > 0
               );
 
               return (
@@ -1370,7 +1370,7 @@ export default function StockManagement() {
                     <div className="grid grid-cols-4 gap-2 bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100 text-center mb-3">
                       <div>
                         <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block">Issued</span>
-                        <span className="text-sm font-bold text-[#111] font-['Poppins']">{p.receivedFromCompany}</span>
+                        <span className="text-sm font-bold text-[#111] font-['Poppins']">{p.issued ?? ((p.receivedFromCompany || 0) + (p.receivedFromEmployees || 0))}</span>
                       </div>
                       <div>
                         <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block">Sold</span>

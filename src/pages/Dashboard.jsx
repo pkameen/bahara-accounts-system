@@ -45,6 +45,10 @@ const Dashboard = () => {
     return filterItemsByDate(invoices, filterType, startDate, endDate, "createdAt", "invoiceDate");
   }, [invoices, filterType, startDate, endDate]);
 
+  const dateFilteredExpenses = useMemo(() => {
+    return filterItemsByDate(expenses, filterType, startDate, endDate, "createdAt", "expenseDate");
+  }, [expenses, filterType, startDate, endDate]);
+
 
   useEffect(() => {
     const invoicesRef = ref(db, "invoices");
@@ -114,7 +118,7 @@ const Dashboard = () => {
 
 
 
-  // Centralized Data Calculations
+  // Centralized Data Calculations (Company Overall Totals)
   const {
     totalTurnover,
     totalItemsSold,
@@ -160,7 +164,9 @@ const Dashboard = () => {
         lastMonthTurnover += amount;
       }
 
-      const prods = invoice.products || [];
+      const prods = Array.isArray(invoice.products)
+        ? invoice.products
+        : (invoice.products && typeof invoice.products === 'object' ? Object.values(invoice.products) : []);
       prods.forEach(p => {
         const qty = Number(p.quantity) || 0;
         items += qty;
@@ -209,8 +215,8 @@ const Dashboard = () => {
 
   // Top Sales Employees
   const topEmployees = useMemo(() => {
-    return calculateTopSalesEmployees(invoices, expenses, employees).slice(0, 5);
-  }, [invoices, expenses, employees]);
+    return calculateTopSalesEmployees(dateFilteredInvoices, dateFilteredExpenses, employees).slice(0, 5);
+  }, [dateFilteredInvoices, dateFilteredExpenses, employees]);
 
   // Filter Last 5 Recent Sales
   const recentSales = useMemo(() => {
@@ -253,11 +259,11 @@ const Dashboard = () => {
   const stockReconData = useMemo(() => {
     return calculateEmployeeStockReconciliation({
       stockIssues,
-      invoices: dateFilteredInvoices,
+      invoices,
       employeesList: employees,
       productsList: products
     });
-  }, [stockIssues, dateFilteredInvoices, employees, products]);
+  }, [stockIssues, invoices, employees, products]);
 
   const cards = [
     {
@@ -274,8 +280,8 @@ const Dashboard = () => {
       amount: `₹${balance.toLocaleString('en-IN')}`,
       icon: <FiBriefcase />,
       color: balance >= 0 ? "text-emerald-200" : "text-rose-200",
-      bgClass: balance >= 0 
-        ? "bg-gradient-to-br from-[#064e3b] via-[#047857] to-[#0f766e] text-white border-emerald-400/40 shadow-2xl" 
+      bgClass: balance >= 0
+        ? "bg-gradient-to-br from-[#064e3b] via-[#047857] to-[#0f766e] text-white border-emerald-400/40 shadow-2xl"
         : "bg-gradient-to-br from-[#881337] via-[#9f1239] to-[#be123c] text-white border-rose-400/40 shadow-2xl",
       iconBgClass: balance >= 0 ? "bg-emerald-400/20 text-emerald-300 border-emerald-400/30" : "bg-rose-400/20 text-rose-300 border-rose-400/30",
       subtext: `Turnover - Expenses`
@@ -297,7 +303,7 @@ const Dashboard = () => {
       iconBgClass: "bg-rose-400/20 text-rose-200 border-rose-400/30"
     },
     {
-      title: "Employee Stock",
+      title: "Total Issued",
       amount: `${stockReconData.overallIssued.toLocaleString('en-IN')} Issued`,
       icon: <FiPackage />,
       color: "text-indigo-200",
@@ -311,8 +317,8 @@ const Dashboard = () => {
       icon: <FiUsers />,
       color: stockReconData.stockMismatchCount > 0 ? "text-rose-200" : "text-purple-200",
       percentage: `${stockReconData.employeesWithBalanceCount} with balance`,
-      bgClass: stockReconData.stockMismatchCount > 0 
-        ? "bg-gradient-to-br from-[#4c0519] via-[#881337] to-[#9f1239] text-white border-rose-400/40 shadow-2xl" 
+      bgClass: stockReconData.stockMismatchCount > 0
+        ? "bg-gradient-to-br from-[#4c0519] via-[#881337] to-[#9f1239] text-white border-rose-400/40 shadow-2xl"
         : "bg-gradient-to-br from-[#3b0764] via-[#581c87] to-[#6b21a8] text-white border-purple-400/40 shadow-2xl",
       iconBgClass: "bg-purple-400/20 text-purple-200 border-purple-400/30"
     },

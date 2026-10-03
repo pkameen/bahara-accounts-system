@@ -33,6 +33,7 @@ export default function EmployeeDashboard() {
   const [expenses, setExpenses] = useState([]);
   const [products, setProducts] = useState([]);
   const [stockIssues, setStockIssues] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [filterType, setFilterType] = useState("today");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -45,6 +46,7 @@ export default function EmployeeDashboard() {
     const expRef = ref(db, "expenses");
     const prodRef = ref(db, "products");
     const issuesRef = ref(db, "employeeStockIssues");
+    const empRef = ref(db, "employees");
 
     const unsubInv = onValue(invRef, (snapshot) => {
       const data = snapshot.val();
@@ -82,25 +84,36 @@ export default function EmployeeDashboard() {
       }
     });
 
+    const unsubEmp = onValue(empRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setEmployees(Object.keys(data).map(k => ({ uid: k, ...data[k] })));
+      } else {
+        setEmployees([]);
+      }
+    });
+
     return () => {
       unsubInv();
       unsubExp();
       unsubProd();
       unsubIssues();
+      unsubEmp();
     };
   }, []);
 
   // Calculate My Stock Reconciliation
   const myStockRecon = useMemo(() => {
+    const empTargetUid = userProfile?.uid || currentUser?.uid;
     const res = calculateEmployeeStockReconciliation({
       stockIssues,
       invoices,
-      employeesList: [],
+      employeesList: employees,
       productsList: products,
-      targetEmployeeUid: currentUser?.uid
+      targetEmployeeUid: empTargetUid
     });
     return res.employees.length > 0 ? res.employees[0] : null;
-  }, [stockIssues, invoices, products, currentUser]);
+  }, [stockIssues, invoices, employees, products, userProfile, currentUser]);
 
 
 
