@@ -382,9 +382,9 @@ const Dashboard = () => {
             </span>
           </div>
 
-          {/* CENTRAL STOCK VALUE */}
+          {/* COMPANY STOCK VALUE */}
           <div className="bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-sm hover:border-cyan-400/50 transition-all">
-            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Central Stock Value</span>
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Company Stock Value</span>
             <span className="text-base font-bold text-cyan-300 font-['Poppins']">
               ₹{(stockReconData.totalCentralStockValue || 0).toLocaleString('en-IN')}
             </span>

@@ -968,7 +968,6 @@ export const calculateStockLedger = ({
           }
           toEmpObj.products[pId].receivedFromEmployees += Math.abs(qty);
           toEmpObj.products[pId].balance += Math.abs(qty);
-          toEmpObj.totalIssued += Math.abs(qty);
           toEmpObj.issueRecords.push(issue);
         }
 
@@ -1313,7 +1312,10 @@ export const calculateEmployeeStockReconciliation = ({
     }
   }
 
-  const overallIssued = employeesReconciliation.reduce((sum, e) => sum + e.totalIssued, 0);
+  const overallIssued = employeesReconciliation.reduce((sum, e) => {
+    const companyIssuedForEmp = Object.values(e.products || {}).reduce((pSum, p) => pSum + (p.receivedFromCompany || 0), 0);
+    return sum + companyIssuedForEmp;
+  }, 0);
   const overallSold = employeesReconciliation.reduce((sum, e) => sum + e.totalSold, 0);
   const overallBalance = overallIssued - overallSold;
   const overallStockUtilization = overallIssued > 0 ? Number(((overallSold / overallIssued) * 100).toFixed(1)) : 0;

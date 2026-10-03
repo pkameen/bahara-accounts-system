@@ -598,7 +598,7 @@ const Reports = () => {
         <SalesCard title="Total Turnover" amount={`₹${turnover}`} icon={<FiDollarSign />} color="text-[#D4AF37]" percentage={turnoverGrowth} />
         <SalesCard title="Pending Amount" amount={`₹${pendingAmount}`} icon={<FiClock />} color="text-orange-500" />
         <SalesCard title="Pending Bills" amount={pendingCount} icon={<FiFileText />} color="text-orange-500" />
-        <SalesCard title="Total Items Sold" amount={totalItems} icon={<FiPackage />} />
+        <SalesCard title="Total Items Sold" amount={totalItems} icon={<FiPackage />} color="text-cyan-600" />
         <SalesCard title="Total Expenses" amount={`₹${expenseTotal}`} icon={<FiTrendingDown />} color="text-red-500" percentage={expenseGrowth} />
         <div className="bg-[#111] text-white premium-shadow border border-gray-800 rounded-[30px] p-7 relative overflow-hidden group hover:border-[#D4AF37]/50 transition-colors duration-300 flex flex-col justify-center cursor-default">
           <div className="absolute -top-10 -right-10 w-32 h-32 bg-[#D4AF37] blur-[70px] opacity-30 rounded-full group-hover:opacity-50 transition-opacity"></div>
