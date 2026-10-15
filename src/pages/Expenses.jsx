@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/purity */
 import { useEffect, useState, useMemo } from "react";
 import { db } from "../firebase";
 import {
@@ -16,9 +17,10 @@ import {
   FiX, 
   FiChevronDown,
   FiUsers,
-  FiLock
+  FiLock,
+  FiAlertTriangle
 } from "react-icons/fi";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 import { useAuth } from "../context/AuthContext";
 import DateFilter from "../components/DateFilter";
@@ -54,6 +56,10 @@ const Expenses = () => {
   const [isCatModalOpen, setIsCatModalOpen] = useState(false);
   const [catToEdit, setCatToEdit] = useState(null);
   const [isManageCatOpen, setIsManageCatOpen] = useState(false);
+
+  // Secure Delete Modal State
+  const [expenseToDelete, setExpenseToDelete] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Fetch Categories from Firebase
   useEffect(() => {
@@ -219,14 +225,42 @@ const Expenses = () => {
     toast.success("Loaded expense into editor", { duration: 2000, style: { borderRadius: '14px', background: '#111', color: '#D4AF37' } });
   };
 
-  // Delete Expense
-  const deleteExpense = async (id) => {
+  // Open Secure Delete Confirmation Dialog
+  const promptDeleteExpense = (expense) => {
+    if (!isAdmin) {
+      toast.error("Unauthorized: Only administrators are permitted to delete expenses");
+      return;
+    }
+    setExpenseToDelete(expense);
+  };
+
+  // Perform Secure Expense Deletion
+  const handleConfirmDeleteExpense = async () => {
+    if (!expenseToDelete || deleteLoading) return;
+
+    if (!isAdmin) {
+      toast.error("Unauthorized: Only administrators are permitted to delete expenses");
+      setExpenseToDelete(null);
+      return;
+    }
+
+    setDeleteLoading(true);
+
     try {
-      await remove(ref(db, `expenses/${id}`));
-      toast.success("Expense Deleted", { style: { borderRadius: '14px', background: '#111', color: '#fff' } });
+      // Execute database removal
+      await remove(ref(db, `expenses/${expenseToDelete.id}`));
+      
+      // Update UI and close dialog only after database confirms deletion
+      toast.success("Expense Deleted Successfully", { 
+        style: { borderRadius: '14px', background: '#111', color: '#fff' } 
+      });
+      setExpenseToDelete(null);
     } catch (error) {
-      console.error(error);
-      toast.error("Delete Failed");
+      console.error("Expense deletion error:", error);
+      // On failure: preserve expense in UI and notify user with clear message
+      toast.error(`Delete Failed: ${error?.message || "Could not delete expense record"}`);
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -517,8 +551,8 @@ const Expenses = () => {
                           </button>
                           {isAdmin && (
                             <button
-                              onClick={() => deleteExpense(expense.id)}
-                              className="w-8 h-8 rounded-xl bg-red-50 hover:bg-red-500 text-red-500 hover:text-white flex items-center justify-center transition-colors"
+                              onClick={() => promptDeleteExpense(expense)}
+                              className="w-8 h-8 rounded-xl bg-red-50 hover:bg-red-500 text-red-500 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
                               title="Delete Record"
                             >
                               <FiTrash2 />
@@ -657,6 +691,102 @@ const Expenses = () => {
           </motion.div>
         </div>
       )}
+
+      {/* SECURE DELETE EXPENSE CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {expenseToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-[32px] p-6 sm:p-8 w-full max-w-md shadow-2xl relative border border-gray-100"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => !deleteLoading && setExpenseToDelete(null)}
+                disabled={deleteLoading}
+                className="absolute top-6 right-6 text-gray-400 hover:text-[#111] transition-colors p-2 rounded-full hover:bg-gray-100 disabled:opacity-40"
+              >
+                <FiX className="text-xl" />
+              </button>
+
+              {/* Warning Icon */}
+              <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-100 text-red-500 flex items-center justify-center mb-5 text-2xl mx-auto">
+                <FiAlertTriangle />
+              </div>
+
+              {/* Modal Title & Intro */}
+              <h2 className="text-2xl font-bold text-[#111] text-center mb-2 font-['Poppins']">
+                Delete Expense?
+              </h2>
+              <p className="text-xs text-gray-500 text-center font-medium mb-6">
+                Are you sure you want to permanently delete this expense record? This action will adjust all associated operational summaries.
+              </p>
+
+              {/* Expense Details Card */}
+              <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 space-y-2.5 mb-6 text-xs">
+                <div className="flex justify-between items-start gap-2">
+                  <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">Description</span>
+                  <span className="font-bold text-[#111] text-right truncate max-w-[200px]">
+                    {expenseToDelete.title || expenseToDelete.categoryName || "Operational Expense"}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">Category</span>
+                  <span className="font-semibold text-gray-700 bg-gray-200/60 px-2 py-0.5 rounded-full text-[10px]">
+                    {expenseToDelete.categoryName || "Uncategorized"}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">Date</span>
+                  <span className="font-semibold text-gray-700">
+                    {expenseToDelete.expenseDate
+                      ? expenseToDelete.expenseDate.split('-').reverse().join('/')
+                      : expenseToDelete.date || "-"}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center border-t border-gray-200/60 pt-2.5">
+                  <span className="text-gray-500 font-bold uppercase tracking-wider text-[10px]">Amount</span>
+                  <span className="font-bold text-red-600 font-['Poppins'] text-base">
+                    ₹{(Number(expenseToDelete.amount) || 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Action Buttons: Cancel and Delete Expense */}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={deleteLoading}
+                  onClick={() => setExpenseToDelete(null)}
+                  className="flex-1 bg-gray-100 text-gray-700 py-3.5 rounded-2xl font-bold hover:bg-gray-200 transition-colors text-xs cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={deleteLoading}
+                  onClick={handleConfirmDeleteExpense}
+                  className="flex-1 bg-red-600 text-white py-3.5 rounded-2xl font-bold hover:bg-red-700 transition-colors shadow-lg shadow-red-600/20 text-xs cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {deleteLoading ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <span>Delete Expense</span>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

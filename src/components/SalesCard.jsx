@@ -9,7 +9,9 @@ export default function SalesCard({
   color = "text-white",
   bgClass = "bg-white border-gray-100",
   iconBgClass,
-  subtext
+  subtext,
+  headerAction,
+  bottomAction
 }) {
   // Determine trend direction
   const isPositive = percentage && percentage.toString().startsWith("+");
@@ -20,16 +22,23 @@ export default function SalesCard({
     <motion.div
       whileHover={{ y: -6, scale: 1.02 }}
       transition={{ type: "spring", stiffness: 300, damping: 20 }}
-      className={`${bgClass} rounded-[30px] p-6 relative overflow-hidden group transition-all duration-300 cursor-default border ${isCustomBg ? "shadow-2xl" : "border-gray-100 hover:border-[#D4AF37]/40 shadow-sm"}`}
+      className={`${bgClass} rounded-[30px] p-6 relative overflow-hidden group transition-all duration-300 cursor-default border ${isCustomBg ? "shadow-2xl" : "border-gray-100 hover:border-[#D4AF37]/40 shadow-sm"} flex flex-col justify-between`}
     >
       {/* Ambient background glow blob on hover */}
       <div className="absolute -bottom-10 -right-10 w-36 h-36 bg-gradient-to-br from-white/20 to-transparent rounded-full group-hover:scale-[2.5] transition-transform duration-700 opacity-50 z-0 pointer-events-none"></div>
       
       <div className="relative z-10 flex items-start justify-between gap-3">
-        <div>
-          <p className={`${isCustomBg ? "text-gray-300 font-semibold" : "text-gray-400 font-bold"} text-[11px] uppercase tracking-widest mb-2 font-['Inter']`}>
-            {title}
-          </p>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className={`${isCustomBg ? "text-gray-300 font-semibold" : "text-gray-400 font-bold"} text-[11px] uppercase tracking-widest font-['Inter'] truncate`}>
+              {title}
+            </p>
+            {headerAction && (
+              <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                {headerAction}
+              </div>
+            )}
+          </div>
           <h2 className={`text-2xl sm:text-3xl font-bold ${color} tracking-tight font-['Poppins']`}>
             {amount}
           </h2>
@@ -50,6 +59,12 @@ export default function SalesCard({
           {icon}
         </div>
       </div>
+
+      {bottomAction && (
+        <div className="relative z-10 mt-3 pt-2.5 border-t border-white/10" onClick={(e) => e.stopPropagation()}>
+          {bottomAction}
+        </div>
+      )}
 
       {percentage && (
         <div className="relative z-10 mt-5 flex items-center gap-2">

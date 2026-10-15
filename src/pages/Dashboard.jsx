@@ -14,7 +14,10 @@ import {
   FiAward,
   FiClock,
   FiUsers,
-  FiChevronRight
+  FiChevronRight,
+  FiChevronDown,
+  FiArrowUpRight,
+  FiLayers
 } from "react-icons/fi";
 
 import BySalesmanChart from "../components/BySalesmanChart";
@@ -34,12 +37,14 @@ const Dashboard = () => {
 
   const [invoices, setInvoices] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [earnings, setEarnings] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [products, setProducts] = useState([]);
   const [stockIssues, setStockIssues] = useState([]);
   const [filterType, setFilterType] = useState("month");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [otherIncomeCategory, setOtherIncomeCategory] = useState("other_income"); // "other_income" | "gst_refund" | "credit_recovery"
 
   const dateFilteredInvoices = useMemo(() => {
     return filterItemsByDate(invoices, filterType, startDate, endDate, "createdAt", "invoiceDate");
@@ -53,6 +58,7 @@ const Dashboard = () => {
   useEffect(() => {
     const invoicesRef = ref(db, "invoices");
     const expRef = ref(db, "expenses");
+    const earnRef = ref(db, "earnings");
     const empRef = ref(db, "employees");
     const prodRef = ref(db, "products");
     const issuesRef = ref(db, "employeeStockIssues");
@@ -74,6 +80,16 @@ const Dashboard = () => {
         setExpenses(Object.keys(data).map(key => ({ id: key, ...data[key] })));
       } else {
         setExpenses([]);
+      }
+    });
+
+    // Fetch Earnings
+    const unsubEarn = onValue(earnRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setEarnings(Object.keys(data).map(key => ({ id: key, ...data[key] })));
+      } else {
+        setEarnings([]);
       }
     });
 
@@ -110,6 +126,7 @@ const Dashboard = () => {
     return () => {
       unsubInv();
       unsubExp();
+      unsubEarn();
       unsubEmp();
       unsubProd();
       unsubIssues();
@@ -189,7 +206,24 @@ const Dashboard = () => {
     });
 
     const expTotal = expenses.reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0);
-    const netBalance = turnover - expTotal;
+
+    // Actual Sales Cash Received: Unpaid (pending) invoices are NOT cash received
+    const actualSalesCash = turnover - pendingAmt;
+
+    // Genuine Cash Inflows from Earnings:
+    // To prevent double counting, do NOT add receipts that were linked to settle an invoice,
+    // as those invoice payments are already counted in actualSalesCash.
+    const validEarningsCash = earnings.reduce((sum, item) => {
+      const amt = Number(item.amount) || 0;
+      if (amt <= 0) return sum;
+      if (item.linkedInfo && item.linkedInfo.type === "invoice") {
+        return sum; // Already counted in actualSalesCash via the settled invoice
+      }
+      return sum + amt;
+    }, 0);
+
+    // Net Balance = Actual Sales Cash + Other Income + GST Refund + Credit Recovery + Capital Received - Actual Expenses Paid
+    const netBalance = actualSalesCash + validEarningsCash - expTotal;
 
     // Growth Formula
     let growthPercentage = 0;
@@ -211,7 +245,7 @@ const Dashboard = () => {
       formattedGrowth: growthDisplay,
       topProduct
     };
-  }, [invoices, expenses]);
+  }, [invoices, expenses, earnings]);
 
   // Top Sales Employees
   const topEmployees = useMemo(() => {
@@ -265,6 +299,90 @@ const Dashboard = () => {
     });
   }, [stockIssues, invoices, employees, products]);
 
+  // Separate totals for Other Income categories and Capital Received
+  const {
+    otherIncomeAmount,
+    gstRefundAmount,
+    creditRecoveryAmount,
+    capitalReceivedTotal
+  } = useMemo(() => {
+    let otherInc = 0;
+    let gstRef = 0;
+    let creditRec = 0;
+    let capital = 0;
+
+    earnings.forEach((item) => {
+      const amt = Number(item.amount) || 0;
+      if (amt <= 0) return;
+
+      const catName = (item.categoryName || "").toLowerCase().trim();
+      const desc = (item.description || "").toLowerCase().trim();
+      const cls = item.classification || "";
+
+      // 1. Capital Received (strictly isolated in its own independent card)
+      if (cls === "CAPITAL_INVESTMENT" || catName.includes("capital") || catName.includes("investment")) {
+        capital += amt;
+        return;
+      }
+
+      // 2. GST Refund
+      if (
+        catName.includes("gst") ||
+        catName.includes("refund") ||
+        cls === "REFUND_RECOVERY" ||
+        desc.includes("gst refund")
+      ) {
+        gstRef += amt;
+        return;
+      }
+
+      // 3. Credit Recovery
+      if (
+        cls === "CREDIT_RECOVERY" ||
+        catName.includes("credit") ||
+        catName.includes("recovery")
+      ) {
+        creditRec += amt;
+        return;
+      }
+
+      // 4. Other Income
+      otherInc += amt;
+    });
+
+    return {
+      otherIncomeAmount: otherInc,
+      gstRefundAmount: gstRef,
+      creditRecoveryAmount: creditRec,
+      capitalReceivedTotal: capital
+    };
+  }, [earnings]);
+
+  // Active details for the Other Income card based on the user's category selection
+  const selectedOtherIncomeDetails = useMemo(() => {
+    switch (otherIncomeCategory) {
+      case "gst_refund":
+        return {
+          title: "GST Refund",
+          amount: `₹${gstRefundAmount.toLocaleString('en-IN')}`,
+          subtext: "Tax refunds received"
+        };
+      case "credit_recovery":
+        return {
+          title: "Credit Recovery",
+          amount: `₹${creditRecoveryAmount.toLocaleString('en-IN')}`,
+          subtext: "Repayments of credit given"
+        };
+      case "other_income":
+      default:
+        return {
+          title: "Other Income",
+          amount: `₹${otherIncomeAmount.toLocaleString('en-IN')}`,
+          subtext: "Secondary & misc income"
+        };
+    }
+  }, [otherIncomeCategory, otherIncomeAmount, gstRefundAmount, creditRecoveryAmount]);
+
   const cards = [
     {
       title: "Total Turnover",
@@ -284,7 +402,84 @@ const Dashboard = () => {
         ? "bg-gradient-to-br from-[#064e3b] via-[#047857] to-[#0f766e] text-white border-emerald-400/40 shadow-2xl"
         : "bg-gradient-to-br from-[#881337] via-[#9f1239] to-[#be123c] text-white border-rose-400/40 shadow-2xl",
       iconBgClass: balance >= 0 ? "bg-emerald-400/20 text-emerald-300 border-emerald-400/30" : "bg-rose-400/20 text-rose-300 border-rose-400/30",
-      subtext: `Turnover - Expenses`
+      subtext: "Cash Inflows - Expenses"
+    },
+    {
+      title: selectedOtherIncomeDetails.title,
+      amount: selectedOtherIncomeDetails.amount,
+      icon: <FiArrowUpRight />,
+      color: "text-emerald-200",
+      bgClass: "bg-gradient-to-br from-[#064e3b] via-[#047857] to-[#0f766e] text-white border-emerald-400/40 shadow-2xl",
+      iconBgClass: "bg-emerald-400/20 text-emerald-300 border-emerald-400/30",
+      subtext: selectedOtherIncomeDetails.subtext,
+      headerAction: (
+        <div className="relative inline-block">
+          <select
+            id="other-income-category-dropdown"
+            aria-label="Select Income Category"
+            value={otherIncomeCategory}
+            onChange={(e) => setOtherIncomeCategory(e.target.value)}
+            className="bg-black/30 hover:bg-black/50 text-white text-[10px] font-bold tracking-wider px-2 py-1 rounded-xl border border-white/20 outline-none cursor-pointer backdrop-blur-md transition-all appearance-none pr-5"
+          >
+            <option value="other_income" className="bg-[#111] text-white">Other Income</option>
+            <option value="gst_refund" className="bg-[#111] text-white">GST Refund</option>
+            <option value="credit_recovery" className="bg-[#111] text-white">Credit Recovery</option>
+          </select>
+          <FiChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 text-white/70 text-[9px] pointer-events-none" />
+        </div>
+      ),
+      bottomAction: (
+        <div className="flex items-center gap-1 p-0.5 bg-black/25 backdrop-blur-md rounded-xl border border-white/10">
+          <button
+            type="button"
+            id="btn-select-other-income"
+            onClick={() => setOtherIncomeCategory("other_income")}
+            className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all text-center truncate cursor-pointer ${
+              otherIncomeCategory === "other_income"
+                ? "bg-white text-[#064e3b] shadow-md"
+                : "text-white/80 hover:text-white hover:bg-white/10"
+            }`}
+            title="Other Income"
+          >
+            Other Income
+          </button>
+          <button
+            type="button"
+            id="btn-select-gst-refund"
+            onClick={() => setOtherIncomeCategory("gst_refund")}
+            className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all text-center truncate cursor-pointer ${
+              otherIncomeCategory === "gst_refund"
+                ? "bg-white text-[#064e3b] shadow-md"
+                : "text-white/80 hover:text-white hover:bg-white/10"
+            }`}
+            title="GST Refund"
+          >
+            GST Refund
+          </button>
+          <button
+            type="button"
+            id="btn-select-credit-recovery"
+            onClick={() => setOtherIncomeCategory("credit_recovery")}
+            className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all text-center truncate cursor-pointer ${
+              otherIncomeCategory === "credit_recovery"
+                ? "bg-white text-[#064e3b] shadow-md"
+                : "text-white/80 hover:text-white hover:bg-white/10"
+            }`}
+            title="Credit Recovery"
+          >
+            Credit Recovery
+          </button>
+        </div>
+      )
+    },
+    {
+      title: "Capital Received",
+      amount: `₹${capitalReceivedTotal.toLocaleString('en-IN')}`,
+      icon: <FiLayers />,
+      color: "text-purple-200",
+      bgClass: "bg-gradient-to-br from-[#3b0764] via-[#581c87] to-[#6b21a8] text-white border-purple-400/40 shadow-2xl",
+      iconBgClass: "bg-purple-400/20 text-purple-200 border-purple-400/30",
+      subtext: `Owner capital & funding inflow`
     },
     {
       title: "Pending Payments",

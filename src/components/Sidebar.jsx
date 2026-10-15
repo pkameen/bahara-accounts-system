@@ -1,11 +1,11 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { 
-  FiPieChart, FiShoppingBag, FiPlus, 
-  FiFileText, FiDollarSign, FiSettings, FiUsers, FiUser, FiLogOut, FiX, FiLayers
+import {
+  FiPieChart, FiShoppingBag, FiPlus,
+  FiFileText, FiDollarSign, FiTrendingUp, FiSettings, FiUsers, FiUser, FiLogOut, FiX, FiLayers
 } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
-import logoIcon from '../assets/bahara.logo.jpg'; 
+import logoIcon from '../assets/bahara.logo.jpg';
 import { InstallAppButton } from "./PwaBanner";
 
 const adminNavItems = [
@@ -15,6 +15,7 @@ const adminNavItems = [
   { name: "Add Product", path: "/add-product", icon: <FiPlus /> },
   { name: "Reports", path: "/reports", icon: <FiFileText /> },
   { name: "Expenses", path: "/expenses", icon: <FiDollarSign /> },
+  { name: "Earnings", path: "/earnings", icon: <FiTrendingUp /> },
   { name: "Invoice", path: "/invoice", icon: <FiFileText /> },
   { name: "Employees", path: "/employees", icon: <FiUsers /> },
   { name: "Settings", path: "/settings", icon: <FiSettings /> },
@@ -44,16 +45,15 @@ export default function Sidebar({ isOpen, setIsOpen }) {
     <>
       {/* Mobile Backdrop */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
           onClick={() => setIsOpen(false)}
         />
       )}
 
-      <aside 
-        className={`fixed lg:static inset-y-0 left-0 w-[280px] shrink-0 bg-[#111111] text-gray-400 flex flex-col shadow-2xl z-50 transform ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        } lg:translate-x-0 transition-transform duration-500 ease-[cubic-bezier(0.19,1,0.22,1)]`}
+      <aside
+        className={`fixed lg:static inset-y-0 left-0 w-[280px] shrink-0 bg-[#111111] text-gray-400 flex flex-col shadow-2xl z-50 transform ${isOpen ? "translate-x-0" : "-translate-x-full"
+          } lg:translate-x-0 transition-transform duration-500 ease-[cubic-bezier(0.19,1,0.22,1)]`}
       >
         {/* Branding */}
         <div className="flex items-center justify-between px-7 py-9 relative mt-2 mb-2">
@@ -81,10 +81,9 @@ export default function Sidebar({ isOpen, setIsOpen }) {
               to={item.path}
               onClick={() => setIsOpen(false)}
               className={({ isActive }) =>
-                `flex items-center gap-4 px-4 py-4 rounded-[20px] transition-all duration-300 font-medium relative overflow-hidden group ${
-                  isActive 
-                    ? "bg-white/10 text-white shadow-lg shadow-black/20 border border-white/5" 
-                    : "hover:bg-white/5 hover:text-white"
+                `flex items-center gap-4 px-4 py-4 rounded-[20px] transition-all duration-300 font-medium relative overflow-hidden group ${isActive
+                  ? "bg-white/10 text-white shadow-lg shadow-black/20 border border-white/5"
+                  : "hover:bg-white/5 hover:text-white"
                 }`
               }
             >

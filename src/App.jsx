@@ -11,6 +11,7 @@ import AddProduct from './pages/AddProduct';
 import Invoice from './pages/Invoice';
 import Reports from './pages/Reports';
 import Expenses from './pages/Expenses';
+import Earnings from './pages/Earnings';
 import Employees from './pages/Employees';
 import Settings from './pages/Settings';
 import Profile from './pages/Profile';
@@ -44,6 +45,7 @@ function App() {
                   <Route path="products" element={<Products />} />
                   <Route path="add-product" element={<AddProduct />} />
                   <Route path="reports" element={<Reports />} />
+                  <Route path="earnings" element={<Earnings />} />
                   <Route path="employees" element={<Employees />} />
                   <Route path="settings" element={<Settings />} />
                 </Route>
