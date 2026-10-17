@@ -35,7 +35,12 @@ import {
   FiUser,
   FiArrowRight,
   FiX,
-  FiFilter
+  FiFilter,
+  FiTrendingUp,
+  FiLayers,
+  FiArrowUpRight,
+  FiCheckCircle,
+  FiEye
 } from "react-icons/fi";
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ReportTable from "../components/ReportTable";
@@ -65,6 +70,7 @@ const Reports = () => {
   const { isAdmin } = useAuth();
   const [sales, setSales] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [earnings, setEarnings] = useState([]);
   const [products, setProducts] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -76,6 +82,7 @@ const Reports = () => {
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedEmployeeUid, setSelectedEmployeeUid] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("all");
+  const [showEarningsDetails, setShowEarningsDetails] = useState(false);
 
   // Admin Employee Sales & Stock Report Specific Filters & State
   const [reportFilterType, setReportFilterType] = useState("month");
@@ -90,12 +97,13 @@ const Reports = () => {
   useEffect(() => {
     const salesRef = ref(db, "invoices");
     const expRef = ref(db, "expenses");
+    const earnRef = ref(db, "earnings");
     const prodRef = ref(db, "products");
     const empRef = ref(db, "employees");
     const catRef = ref(db, "expenseCategories");
     const stockIssuesRef = ref(db, "employeeStockIssues");
 
-    onValue(salesRef, (snapshot) => {
+    const unsubSales = onValue(salesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setSales(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
@@ -104,7 +112,7 @@ const Reports = () => {
       }
     });
 
-    onValue(expRef, (snapshot) => {
+    const unsubExp = onValue(expRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setExpenses(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
@@ -113,7 +121,16 @@ const Reports = () => {
       }
     });
 
-    onValue(prodRef, (snapshot) => {
+    const unsubEarn = onValue(earnRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setEarnings(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
+      } else {
+        setEarnings([]);
+      }
+    });
+
+    const unsubProd = onValue(prodRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setProducts(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
@@ -122,7 +139,7 @@ const Reports = () => {
       }
     });
 
-    onValue(empRef, (snapshot) => {
+    const unsubEmp = onValue(empRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setEmployees(Object.keys(data).map((key) => ({ uid: key, ...data[key] })));
@@ -131,7 +148,7 @@ const Reports = () => {
       }
     });
 
-    onValue(catRef, (snapshot) => {
+    const unsubCat = onValue(catRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setCategories(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
@@ -140,7 +157,7 @@ const Reports = () => {
       }
     });
 
-    onValue(stockIssuesRef, (snapshot) => {
+    const unsubIssues = onValue(stockIssuesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setStockIssues(Object.keys(data).map((key) => ({ id: key, ...data[key] })));
@@ -148,6 +165,16 @@ const Reports = () => {
         setStockIssues([]);
       }
     });
+
+    return () => {
+      unsubSales();
+      unsubExp();
+      unsubEarn();
+      unsubProd();
+      unsubEmp();
+      unsubCat();
+      unsubIssues();
+    };
   }, []);
 
   // Compute Dynamic Admin Employee Sales & Stock Report
@@ -175,11 +202,20 @@ const Reports = () => {
   const {
     filteredSales,
     filteredExpenses,
+    filteredEarnings,
     turnover,
     turnoverGrowth,
     expenseTotal,
     expenseGrowth,
     balance,
+    balanceGrowth,
+    actualSalesCash,
+    validEarningsCash,
+    otherIncomeTotal,
+    gstRefundTotal,
+    creditRecoveryTotal,
+    capitalReceivedTotal,
+    totalEarningsReceipts,
     pendingAmount,
     pendingCount,
     totalItems,
@@ -191,17 +227,23 @@ const Reports = () => {
     let prevSales = [];
     let currentExp = [];
     let prevExp = [];
+    let currentEarn = [];
+    let prevEarn = [];
 
-    const filterData = (dataList, isExpense = false) => {
+    const filterData = (dataList, type = "sale") => {
       dataList.forEach((item) => {
         let dateVal = item.createdAt || Date.now();
-        if (!isExpense && item.invoiceDate && typeof item.invoiceDate === "string" && item.invoiceDate.includes("-")) {
+        if (type === "sale" && item.invoiceDate && typeof item.invoiceDate === "string" && item.invoiceDate.includes("-")) {
           const [year, month, day] = item.invoiceDate.split('-');
-          dateVal = new Date(year, month - 1, day).getTime();
-        } else if (isExpense && item.expenseDate && typeof item.expenseDate === "string" && item.expenseDate.includes("-")) {
+          if (year && month && day) dateVal = new Date(year, month - 1, day).getTime();
+        } else if (type === "expense" && item.expenseDate && typeof item.expenseDate === "string" && item.expenseDate.includes("-")) {
           const [year, month, day] = item.expenseDate.split('-');
-          dateVal = new Date(year, month - 1, day).getTime();
+          if (year && month && day) dateVal = new Date(year, month - 1, day).getTime();
+        } else if (type === "earning" && item.transactionDate && typeof item.transactionDate === "string" && item.transactionDate.includes("-")) {
+          const [year, month, day] = item.transactionDate.split('-');
+          if (year && month && day) dateVal = new Date(year, month - 1, day).getTime();
         }
+
         const d = new Date(dateVal);
         let isCurrent = false;
         let isPrev = false;
@@ -223,7 +265,8 @@ const Reports = () => {
           isCurrent = true;
         }
 
-        if (!isExpense && paymentFilter !== "all") {
+        // Payment status filter applies only to sales invoices
+        if (type === "sale" && paymentFilter !== "all") {
           const status = item.paymentStatus || "paid";
           if (status !== paymentFilter) {
             isCurrent = false;
@@ -231,6 +274,7 @@ const Reports = () => {
           }
         }
 
+        // Employee filter applies to all records created by that employee
         if (selectedEmployeeUid) {
           if (item.createdByUid !== selectedEmployeeUid) {
             isCurrent = false;
@@ -239,21 +283,24 @@ const Reports = () => {
         }
 
         if (isCurrent) {
-          if (isExpense) currentExp.push(item);
-          else currentSales.push(item);
+          if (type === "sale") currentSales.push(item);
+          else if (type === "expense") currentExp.push(item);
+          else if (type === "earning") currentEarn.push(item);
         }
         if (isPrev) {
-          if (isExpense) prevExp.push(item);
-          else prevSales.push(item);
+          if (type === "sale") prevSales.push(item);
+          else if (type === "expense") prevExp.push(item);
+          else if (type === "earning") prevEarn.push(item);
         }
       });
     };
 
-    filterData(sales, false);
-    filterData(expenses, true);
+    filterData(sales, "sale");
+    filterData(expenses, "expense");
+    filterData(earnings, "earning");
 
-    const getRevenue = (arr) => arr.reduce((sum, s) => sum + (Number(s.totalAmount) || 0), 0);
-    const getExp = (arr) => arr.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    const getRevenue = (arr) => arr.reduce((sum, s) => sum + safeNum(s.totalAmount), 0);
+    const getExp = (arr) => arr.reduce((sum, e) => sum + safeNum(e.amount), 0);
 
     const currentTurnover = getRevenue(currentSales);
     const prevTurnover = getRevenue(prevSales);
@@ -278,22 +325,22 @@ const Reports = () => {
       let saleDateVal = sale.createdAt || 0;
       if (sale.invoiceDate && typeof sale.invoiceDate === "string" && sale.invoiceDate.includes("-")) {
         const [year, month, day] = sale.invoiceDate.split('-');
-        saleDateVal = new Date(year, month - 1, day).getTime();
+        if (year && month && day) saleDateVal = new Date(year, month - 1, day).getTime();
       }
 
       const dateStr = new Date(saleDateVal).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       if (!dateGroupMap[dateStr]) dateGroupMap[dateStr] = { date: dateStr, rawDate: saleDateVal, Revenue: 0 };
-      dateGroupMap[dateStr].Revenue += Number(sale.totalAmount) || 0;
+      dateGroupMap[dateStr].Revenue += safeNum(sale.totalAmount);
 
       const status = sale.paymentStatus || "paid";
       if (status === "pending") {
-        pTotal += Number(sale.totalAmount) || 0;
+        pTotal += safeNum(sale.totalAmount);
         pCount += 1;
       }
 
       const saleProds = Array.isArray(sale.products) ? sale.products : (sale.products && typeof sale.products === 'object' ? Object.values(sale.products) : []);
       saleProds.forEach(p => {
-        const qty = Number(p.quantity) || 0;
+        const qty = safeNum(p.quantity);
         items += qty;
 
         if (p.productId || p.productName) {
@@ -302,10 +349,95 @@ const Reports = () => {
             productMap[pId] = { id: pId, name: p.productName, category: p.category, qty: 0, revenue: 0 };
           }
           productMap[pId].qty += qty;
-          productMap[pId].revenue += Number(p.total || 0);
+          productMap[pId].revenue += safeNum(p.total);
         }
       });
     });
+
+    // Actual Sales Cash Received: Unpaid (pending) invoices are NOT cash received
+    const actualSalesCash = currentTurnover - pTotal;
+
+    // Previous period pending sales for previous net balance calculation
+    let prevPTotal = 0;
+    prevSales.forEach((sale) => {
+      const status = sale.paymentStatus || "paid";
+      if (status === "pending") {
+        prevPTotal += safeNum(sale.totalAmount);
+      }
+    });
+    const prevActualSalesCash = prevTurnover - prevPTotal;
+
+    // Categorization and Genuine Cash Inflows from Earnings:
+    // Reference accounting logic from Main Admin Dashboard (Dashboard.jsx)
+    let otherInc = 0;
+    let gstRef = 0;
+    let creditRec = 0;
+    let capital = 0;
+    let validEarningsCash = 0;
+
+    currentEarn.forEach((item) => {
+      const amt = safeNum(item.amount);
+      if (amt <= 0) return;
+
+      const catName = (item.categoryName || "").toLowerCase().trim();
+      const desc = (item.description || "").toLowerCase().trim();
+      const cls = item.classification || "";
+
+      // 1. Capital Received (strictly isolated in its own category, never counted as sales or operating income)
+      if (cls === "CAPITAL_INVESTMENT" || catName.includes("capital") || catName.includes("investment")) {
+        capital += amt;
+      }
+      // 2. GST Refund
+      else if (
+        catName.includes("gst") ||
+        catName.includes("refund") ||
+        cls === "REFUND_RECOVERY" ||
+        desc.includes("gst refund")
+      ) {
+        gstRef += amt;
+      }
+      // 3. Credit Recovery
+      else if (
+        cls === "CREDIT_RECOVERY" ||
+        catName.includes("credit") ||
+        catName.includes("recovery")
+      ) {
+        creditRec += amt;
+      }
+      // 4. Other Income
+      else {
+        otherInc += amt;
+      }
+
+      // Genuine Cash Inflows from Earnings:
+      // To prevent double counting, do NOT add receipts that were linked to settle an invoice,
+      // as those invoice payments are already counted in actualSalesCash.
+      if (!(item.linkedInfo && item.linkedInfo.type === "invoice")) {
+        validEarningsCash += amt;
+      }
+    });
+
+    let prevValidEarningsCash = 0;
+    prevEarn.forEach((item) => {
+      const amt = safeNum(item.amount);
+      if (amt <= 0) return;
+      if (!(item.linkedInfo && item.linkedInfo.type === "invoice")) {
+        prevValidEarningsCash += amt;
+      }
+    });
+
+    const totalEarningsReceipts = capital + gstRef + creditRec + otherInc;
+
+    // Reconciled Net Balance = Actual Sales Cash + Valid Earnings Cash - Actual Expenses Paid
+    const netBalance = actualSalesCash + validEarningsCash - currentExpenseTotal;
+    const prevBalance = prevActualSalesCash + prevValidEarningsCash - prevExpenseTotal;
+
+    let bGrowth = 0;
+    if (prevBalance !== 0) {
+      bGrowth = ((netBalance - prevBalance) / Math.abs(prevBalance)) * 100;
+    } else if (netBalance > 0) {
+      bGrowth = 100;
+    }
 
     const top3 = Object.values(productMap).sort((a, b) => b.qty - a.qty).slice(0, 3).map(tp => {
       const dbP = products.find(prod => prod.id === tp.id);
@@ -317,18 +449,27 @@ const Reports = () => {
     return {
       filteredSales: currentSales,
       filteredExpenses: currentExp,
+      filteredEarnings: currentEarn,
       turnover: currentTurnover,
       turnoverGrowth: filterType === "custom" ? null : (tGrowth > 0 ? `+${tGrowth.toFixed(1)}%` : `${tGrowth.toFixed(1)}%`),
       expenseTotal: currentExpenseTotal,
       expenseGrowth: filterType === "custom" ? null : (eGrowth > 0 ? `+${eGrowth.toFixed(1)}%` : `${eGrowth.toFixed(1)}%`),
-      balance: currentTurnover - currentExpenseTotal,
+      balance: netBalance,
+      balanceGrowth: filterType === "custom" ? null : (bGrowth > 0 ? `+${bGrowth.toFixed(1)}%` : `${bGrowth.toFixed(1)}%`),
+      actualSalesCash,
+      validEarningsCash,
+      otherIncomeTotal: otherInc,
+      gstRefundTotal: gstRef,
+      creditRecoveryTotal: creditRec,
+      capitalReceivedTotal: capital,
+      totalEarningsReceipts,
       pendingAmount: pTotal,
       pendingCount: pCount,
       totalItems: items,
       chartData: chartArr,
       topProducts: top3
     };
-  }, [sales, expenses, products, filterType, startDate, endDate, paymentFilter, selectedEmployeeUid]);
+  }, [sales, expenses, earnings, products, filterType, startDate, endDate, paymentFilter, selectedEmployeeUid]);
 
   // Unified Employee Performance Matrix
   const employeePerformanceList = useMemo(() => {
@@ -595,21 +736,240 @@ const Reports = () => {
 
       {/* Summary Cards */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-        <SalesCard title="Total Turnover" amount={`₹${turnover}`} icon={<FiDollarSign />} color="text-[#D4AF37]" percentage={turnoverGrowth} />
-        <SalesCard title="Pending Amount" amount={`₹${pendingAmount}`} icon={<FiClock />} color="text-orange-500" />
-        <SalesCard title="Pending Bills" amount={pendingCount} icon={<FiFileText />} color="text-orange-500" />
-        <SalesCard title="Total Items Sold" amount={totalItems} icon={<FiPackage />} color="text-cyan-600" />
-        <SalesCard title="Total Expenses" amount={`₹${expenseTotal}`} icon={<FiTrendingDown />} color="text-red-500" percentage={expenseGrowth} />
-        <div className="bg-[#111] text-white premium-shadow border border-gray-800 rounded-[30px] p-7 relative overflow-hidden group hover:border-[#D4AF37]/50 transition-colors duration-300 flex flex-col justify-center cursor-default">
-          <div className="absolute -top-10 -right-10 w-32 h-32 bg-[#D4AF37] blur-[70px] opacity-30 rounded-full group-hover:opacity-50 transition-opacity"></div>
+        <SalesCard
+          title="Total Turnover"
+          amount={`₹${formatCurrency(turnover)}`}
+          icon={<FiDollarSign />}
+          color="text-[#D4AF37]"
+          percentage={turnoverGrowth}
+          subtext="Product Sales Only"
+        />
+        <SalesCard
+          title="Pending Amount"
+          amount={`₹${formatCurrency(pendingAmount)}`}
+          icon={<FiClock />}
+          color="text-orange-500"
+          subtext="Uncollected sales receivables"
+        />
+        <SalesCard
+          title="Pending Bills"
+          amount={formatNumber(pendingCount)}
+          icon={<FiFileText />}
+          color="text-orange-500"
+          subtext={`${pendingCount} unpaid invoice(s)`}
+        />
+        <SalesCard
+          title="Total Items Sold"
+          amount={formatNumber(totalItems)}
+          icon={<FiPackage />}
+          color="text-cyan-600"
+          subtext="Physical product units sold"
+        />
+        <SalesCard
+          title="Total Expenses"
+          amount={`₹${formatCurrency(expenseTotal)}`}
+          icon={<FiTrendingDown />}
+          color="text-red-500"
+          percentage={expenseGrowth}
+          subtext="Period operating outflows"
+        />
+        <div className={`text-white premium-shadow border rounded-[30px] p-7 relative overflow-hidden group transition-all duration-300 flex flex-col justify-between cursor-default ${
+          balance >= 0
+            ? "bg-gradient-to-br from-[#064e3b] via-[#047857] to-[#0f766e] border-emerald-400/40 shadow-2xl"
+            : "bg-gradient-to-br from-[#881337] via-[#9f1239] to-[#be123c] border-rose-400/40 shadow-2xl"
+        }`}>
+          <div className="absolute -top-10 -right-10 w-32 h-32 bg-[#D4AF37] blur-[70px] opacity-25 rounded-full group-hover:opacity-40 transition-opacity pointer-events-none"></div>
           <div className="relative z-10 flex items-start justify-between">
             <div>
-              <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-2">Net Balance</p>
-              <h2 className={`text-3xl font-bold tracking-tight font-['Poppins'] ${balance >= 0 ? 'text-green-400' : 'text-red-400'}`}>₹{balance}</h2>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-white/80 text-xs font-bold uppercase tracking-widest">Reconciled Net Balance</span>
+                {balanceGrowth && (
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full backdrop-blur-md ${balance >= 0 ? "bg-white/20 text-white" : "bg-black/30 text-rose-200"}`}>
+                    {balanceGrowth}
+                  </span>
+                )}
+              </div>
+              <h2 className={`text-3xl font-bold tracking-tight font-['Poppins'] ${balance >= 0 ? 'text-white' : 'text-rose-100'}`}>
+                ₹{formatCurrency(balance)}
+              </h2>
             </div>
-            <div className="w-12 h-12 rounded-[18px] bg-white/10 flex items-center justify-center text-2xl text-[#D4AF37]"><FiBriefcase /></div>
+            <div className={`w-12 h-12 rounded-[18px] flex items-center justify-center text-2xl border backdrop-blur-md ${
+              balance >= 0 ? "bg-emerald-400/20 text-emerald-200 border-emerald-400/30" : "bg-rose-400/20 text-rose-200 border-rose-400/30"
+            }`}>
+              <FiBriefcase />
+            </div>
+          </div>
+          <div className="relative z-10 pt-4 mt-3 border-t border-white/10 flex items-center justify-between text-[11px] text-white/80 font-medium">
+            <span>Inflows: Sales ₹{formatCurrency(actualSalesCash)} + Earn ₹{formatCurrency(validEarningsCash)}</span>
+            <span>Exp: ₹{formatCurrency(expenseTotal)}</span>
           </div>
         </div>
+      </motion.div>
+
+      {/* 2. CONCISE EARNINGS & INFLOW BREAKDOWN BANNER */}
+      <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="mb-10 bg-gradient-to-br from-[#111111] via-[#1a1c2e] to-[#16213e] border border-white/10 rounded-[32px] p-7 shadow-2xl relative overflow-hidden text-white">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-[#D4AF37] blur-[100px] opacity-15 rounded-full pointer-events-none"></div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5 pb-4 border-b border-white/10 relative z-10">
+          <div className="flex items-center gap-3.5">
+            <span className="p-3 rounded-2xl bg-white/10 text-[#D4AF37] text-xl shadow-lg border border-white/10 backdrop-blur-md">
+              <FiTrendingUp />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-bold text-white font-['Poppins']">Earnings & Inflows Reconciliation</h3>
+                <span className="text-[10px] font-bold bg-[#D4AF37]/20 text-[#D4AF37] px-2.5 py-0.5 rounded-full uppercase tracking-wider border border-[#D4AF37]/30">
+                  {filteredEarnings.length} {filteredEarnings.length === 1 ? 'Receipt' : 'Receipts'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-300 font-medium mt-0.5">
+                Secondary income, tax refunds, credit recoveries & capital inflows for active reporting period
+              </p>
+            </div>
+          </div>
+
+          {filteredEarnings.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowEarningsDetails(prev => !prev)}
+              className="bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3.5 py-2 rounded-xl border border-white/10 flex items-center gap-1.5 transition-all self-start sm:self-auto cursor-pointer"
+            >
+              <FiEye className="text-sm" />
+              <span>{showEarningsDetails ? "Hide Period Ledger" : "View Period Ledger"}</span>
+              <FiChevronDown className={`text-xs transition-transform duration-200 ${showEarningsDetails ? "rotate-180" : ""}`} />
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 text-center relative z-10">
+          {/* Other Income Total */}
+          <div className="bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-sm hover:border-emerald-400/50 transition-all">
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Other Income</span>
+            <span className="text-base font-bold text-emerald-300 font-['Poppins']">
+              ₹{formatCurrency(otherIncomeTotal)}
+            </span>
+            <span className="text-[10px] text-gray-400 block mt-0.5 font-medium">Secondary & misc</span>
+          </div>
+
+          {/* GST Refund Total */}
+          <div className="bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-sm hover:border-amber-400/50 transition-all">
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">GST Refund</span>
+            <span className="text-base font-bold text-amber-300 font-['Poppins']">
+              ₹{formatCurrency(gstRefundTotal)}
+            </span>
+            <span className="text-[10px] text-gray-400 block mt-0.5 font-medium">Tax refunds</span>
+          </div>
+
+          {/* Credit Recovery Total */}
+          <div className="bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-sm hover:border-blue-400/50 transition-all">
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Credit Recovery</span>
+            <span className="text-base font-bold text-blue-300 font-['Poppins']">
+              ₹{formatCurrency(creditRecoveryTotal)}
+            </span>
+            <span className="text-[10px] text-gray-400 block mt-0.5 font-medium">Receivables collected</span>
+          </div>
+
+          {/* Capital Received Total */}
+          <div className="bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-sm hover:border-purple-400/50 transition-all">
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Capital Received</span>
+            <span className="text-base font-bold text-purple-300 font-['Poppins']">
+              ₹{formatCurrency(capitalReceivedTotal)}
+            </span>
+            <span className="text-[10px] text-gray-400 block mt-0.5 font-medium">Owner funding inflow</span>
+          </div>
+
+          {/* Total Earnings Receipts */}
+          <div className="bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-sm hover:border-[#D4AF37]/50 transition-all">
+            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Total Inflows</span>
+            <span className="text-base font-bold text-[#D4AF37] font-['Poppins']">
+              ₹{formatCurrency(totalEarningsReceipts)}
+            </span>
+            <span className="text-[10px] text-gray-400 block mt-0.5 font-medium">All period inflows</span>
+          </div>
+
+          {/* Reconciled Net Balance */}
+          <div className={`p-4 rounded-2xl border backdrop-blur-md shadow-sm transition-all ${
+            balance >= 0 ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300" : "bg-rose-500/20 border-rose-500/40 text-rose-300"
+          }`}>
+            <span className="text-[9px] font-bold uppercase tracking-widest block mb-1">Net Balance</span>
+            <span className="text-base font-bold font-['Poppins']">
+              ₹{formatCurrency(balance)}
+            </span>
+            <span className="text-[10px] block mt-0.5 font-medium opacity-90">
+              {balance >= 0 ? "🟢 Cash Positive" : "🔴 Deficit"}
+            </span>
+          </div>
+        </div>
+
+        {/* Collapsible Period Earnings Ledger */}
+        <AnimatePresence>
+          {showEarningsDetails && filteredEarnings.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-6 pt-5 border-t border-white/10 relative z-10"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-300">Period Earnings Transactions</h4>
+                <span className="text-[11px] text-gray-400">Total: ₹{formatCurrency(totalEarningsReceipts)}</span>
+              </div>
+              <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/30 backdrop-blur-md">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-white/5 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-white/10">
+                    <tr>
+                      <th className="p-3">Date</th>
+                      <th className="p-3">Category</th>
+                      <th className="p-3">Description</th>
+                      <th className="p-3">Received Into</th>
+                      <th className="p-3">Classification</th>
+                      <th className="p-3 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5 text-gray-200">
+                    {filteredEarnings.map((earn) => (
+                      <tr key={earn.id} className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 whitespace-nowrap text-gray-300 font-medium">
+                          {earn.transactionDate || (earn.createdAt ? new Date(earn.createdAt).toLocaleDateString() : "N/A")}
+                        </td>
+                        <td className="p-3 font-semibold text-white">
+                          {earn.categoryName || "General Earning"}
+                        </td>
+                        <td className="p-3 text-gray-300 max-w-[200px] truncate" title={earn.description}>
+                          {earn.description || "—"}
+                          {earn.linkedInfo && (
+                            <span className="ml-1.5 text-[9px] bg-white/10 text-[#D4AF37] px-1.5 py-0.5 rounded">
+                              {earn.linkedInfo.type === "invoice" ? `Inv #${earn.linkedInfo.reference}` : `Exp #${earn.linkedInfo.reference}`}
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-gray-400">
+                          {earn.receivedInto || earn.paymentMethod || "Bank"}
+                        </td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            earn.classification === "CAPITAL_INVESTMENT"
+                              ? "bg-purple-400/20 text-purple-300 border border-purple-400/30"
+                              : earn.classification === "REFUND_RECOVERY"
+                              ? "bg-amber-400/20 text-amber-300 border border-amber-400/30"
+                              : earn.classification === "CREDIT_RECOVERY"
+                              ? "bg-blue-400/20 text-blue-300 border border-blue-400/30"
+                              : "bg-emerald-400/20 text-emerald-300 border border-emerald-400/30"
+                          }`}>
+                            {earn.classification || "OTHER_INCOME"}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right font-bold text-[#D4AF37] font-['Poppins']">
+                          ₹{formatCurrency(earn.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
 
       {/* ========================================================================= */}
@@ -724,35 +1084,35 @@ const Reports = () => {
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 my-6">
             <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Opening Stock</span>
-              <span className="text-lg font-bold text-[#111] font-['Poppins']">{adminStockReport.summary.openingStock}</span>
+              <span className="text-lg font-bold text-[#111] font-['Poppins']">{adminStockReport?.summary?.openingStock || 0}</span>
             </div>
             <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Stock Issued</span>
-              <span className="text-lg font-bold text-blue-600 font-['Poppins']">{adminStockReport.summary.stockIssued}</span>
+              <span className="text-lg font-bold text-blue-600 font-['Poppins']">{adminStockReport?.summary?.stockIssued || 0}</span>
             </div>
             <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Available</span>
-              <span className="text-lg font-bold text-[#111] font-['Poppins']">{adminStockReport.summary.totalAvailable}</span>
+              <span className="text-lg font-bold text-[#111] font-['Poppins']">{adminStockReport?.summary?.totalAvailable || 0}</span>
             </div>
             <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Sold</span>
-              <span className="text-lg font-bold text-[#D4AF37] font-['Poppins']">{adminStockReport.summary.totalSold}</span>
+              <span className="text-lg font-bold text-[#D4AF37] font-['Poppins']">{adminStockReport?.summary?.totalSold || 0}</span>
             </div>
             <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Remaining Stock</span>
-              <span className="text-lg font-bold text-amber-700 font-['Poppins']">{adminStockReport.summary.remainingStock}</span>
+              <span className="text-lg font-bold text-amber-700 font-['Poppins']">{adminStockReport?.summary?.remainingStock || 0}</span>
             </div>
             <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Revenue</span>
-              <span className="text-lg font-bold text-green-600 font-['Poppins']">₹{(adminStockReport?.summary?.totalRevenue || 0).toLocaleString('en-IN')}</span>
+              <span className="text-lg font-bold text-green-600 font-['Poppins']">₹{formatCurrency(adminStockReport?.summary?.totalRevenue)}</span>
             </div>
             <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-center">
               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Expenses</span>
-              <span className="text-lg font-bold text-red-500 font-['Poppins']">₹{(adminStockReport?.summary?.totalExpenses || 0).toLocaleString('en-IN')}</span>
+              <span className="text-lg font-bold text-red-500 font-['Poppins']">₹{formatCurrency(adminStockReport?.summary?.totalExpenses)}</span>
             </div>
             <div className="bg-[#111] text-[#D4AF37] rounded-2xl p-3.5 text-center shadow-md">
               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Net Balance</span>
-              <span className="text-lg font-bold font-['Poppins']">₹{(adminStockReport?.summary?.netBalance || 0).toLocaleString('en-IN')}</span>
+              <span className="text-lg font-bold font-['Poppins']">₹{formatCurrency(adminStockReport?.summary?.netBalance)}</span>
             </div>
           </div>
 
@@ -773,7 +1133,7 @@ const Reports = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-xs font-semibold text-[#111]">
-                {adminStockReport.employeesReport.length > 0 ? (
+                {adminStockReport?.employeesReport?.length > 0 ? (
                   adminStockReport.employeesReport.map((emp) => (
                     <tr
                       key={emp.uid}
@@ -788,7 +1148,7 @@ const Reports = () => {
                               {emp.name}
                             </span>
                             <span className="text-[10px] text-gray-400 font-normal block">
-                              {emp.productsList.length} product line(s)
+                              {emp.productsList?.length || 0} product line(s)
                             </span>
                           </div>
                         </div>
@@ -796,7 +1156,7 @@ const Reports = () => {
                       <td className="p-4 text-right text-gray-700 font-bold">{emp.issuedDuringPeriod}</td>
                       <td className="p-4 text-right text-[#D4AF37] font-bold">{emp.soldDuringPeriod}</td>
                       <td className="p-4 text-right text-amber-800 font-bold">{emp.remainingStock}</td>
-                      <td className="p-4 text-right text-green-600 font-bold">₹{(emp.revenue || 0).toLocaleString('en-IN')}</td>
+                      <td className="p-4 text-right text-green-600 font-bold">₹{formatCurrency(emp.revenue)}</td>
                       <td className="p-4 text-center">
                         <div className="flex flex-col items-center">
                           <span className="font-bold text-xs text-[#111]">{emp.salesPercentageFormatted}</span>
@@ -808,10 +1168,10 @@ const Reports = () => {
                           </div>
                         </div>
                       </td>
-                      <td className="p-4 text-right text-red-500 font-bold">₹{(emp.expenses || 0).toLocaleString('en-IN')}</td>
+                      <td className="p-4 text-right text-red-500 font-bold">₹{formatCurrency(emp.expenses)}</td>
                       <td className="p-4 text-right font-bold">
                         <span className={`px-2.5 py-1 rounded-full text-xs ${emp.netBalance >= 0 ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-                          ₹{(emp.netBalance || 0).toLocaleString('en-IN')}
+                          ₹{formatCurrency(emp.netBalance)}
                         </span>
                       </td>
                       <td className="p-4 text-center">
@@ -840,7 +1200,7 @@ const Reports = () => {
 
           {/* Mobile Card Layout View */}
           <div className="md:hidden grid grid-cols-1 gap-4">
-            {adminStockReport.employeesReport.length > 0 ? (
+            {adminStockReport?.employeesReport?.length > 0 ? (
               adminStockReport.employeesReport.map((emp) => (
                 <div
                   key={emp.uid}
@@ -852,7 +1212,7 @@ const Reports = () => {
                       <EmployeeAvatar emp={emp} className="w-10 h-10" textClassName="text-sm" />
                       <div>
                         <h4 className="font-bold text-sm text-[#111]">{emp.name}</h4>
-                        <span className="text-[10px] text-gray-500">{emp.productsList.length} products assigned</span>
+                        <span className="text-[10px] text-gray-500">{emp.productsList?.length || 0} products assigned</span>
                       </div>
                     </div>
                     <span className="bg-[#111] text-[#D4AF37] px-2.5 py-1 rounded-lg text-xs font-bold">
@@ -878,15 +1238,15 @@ const Reports = () => {
                   <div className="flex items-center justify-between pt-2 text-xs">
                     <div>
                       <span className="text-[10px] text-gray-400 block font-bold">Revenue</span>
-                      <span className="font-bold text-green-600">₹{(emp.revenue || 0).toLocaleString('en-IN')}</span>
+                      <span className="font-bold text-green-600">₹{formatCurrency(emp.revenue)}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-gray-400 block font-bold">Expenses</span>
-                      <span className="font-bold text-red-500">₹{(emp.expenses || 0).toLocaleString('en-IN')}</span>
+                      <span className="font-bold text-red-500">₹{formatCurrency(emp.expenses)}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-gray-400 block font-bold">Net Balance</span>
-                      <span className="font-bold text-[#111]">₹{(emp.netBalance || 0).toLocaleString('en-IN')}</span>
+                      <span className="font-bold text-[#111]">₹{formatCurrency(emp.netBalance)}</span>
                     </div>
                   </div>
                 </div>
@@ -962,106 +1322,304 @@ const Reports = () => {
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 my-6">
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Opening Stock</span>
-                  <span className="text-base font-bold text-[#111]">{currentDetailEmployee.openingStock}</span>
+                  <span className="text-base font-bold text-[#111]">{currentDetailEmployee?.openingStock || 0}</span>
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Stock Issued</span>
-                  <span className="text-base font-bold text-blue-600">{currentDetailEmployee.issuedDuringPeriod}</span>
+                  <span className="text-base font-bold text-blue-600">{currentDetailEmployee?.issuedDuringPeriod || 0}</span>
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Available</span>
-                  <span className="text-base font-bold text-[#111]">{currentDetailEmployee.totalAvailable}</span>
+                  <span className="text-base font-bold text-[#111]">{currentDetailEmployee?.totalAvailable || 0}</span>
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Sold</span>
-                  <span className="text-base font-bold text-[#D4AF37]">{currentDetailEmployee.soldDuringPeriod}</span>
+                  <span className="text-base font-bold text-[#D4AF37]">{currentDetailEmployee?.soldDuringPeriod || 0}</span>
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Remaining Stock</span>
-                  <span className="text-base font-bold text-amber-800">{currentDetailEmployee.remainingStock}</span>
+                  <span className="text-base font-bold text-amber-800">{currentDetailEmployee?.remainingStock || 0}</span>
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Revenue</span>
-                  <span className="text-base font-bold text-green-600">₹{(currentDetailEmployee.revenue || 0).toLocaleString('en-IN')}</span>
+                  <span className="text-base font-bold text-green-600">₹{formatCurrency(currentDetailEmployee?.revenue)}</span>
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3 text-center">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Total Expenses</span>
-                  <span className="text-base font-bold text-red-500">₹{(currentDetailEmployee.expenses || 0).toLocaleString('en-IN')}</span>
+                  <span className="text-base font-bold text-red-500">₹{formatCurrency(currentDetailEmployee?.expenses)}</span>
                 </div>
                 <div className="bg-[#111] text-[#D4AF37] rounded-2xl p-3 text-center">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Net Balance</span>
-                  <span className="text-base font-bold">₹{(currentDetailEmployee.netBalance || 0).toLocaleString('en-IN')}</span>
+                  <span className="text-base font-bold">₹{formatCurrency(currentDetailEmployee?.netBalance)}</span>
                 </div>
               </div>
 
               {/* Product Sales Graph / Visual Distribution */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 my-6">
-                <div className="lg:col-span-8 bg-gray-50/70 border border-gray-100 rounded-3xl p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-bold text-[#111] font-['Poppins'] flex items-center gap-2">
-                      <FiPieChart className="text-[#D4AF37]" /> Product Sales Distribution
-                    </h3>
-                    <span className="text-xs text-gray-400 font-semibold">Unit Sales Share</span>
-                  </div>
+              {(() => {
+                const detailSoldProducts = (currentDetailEmployee?.productsList || []).filter(
+                  (p) => (Number(p.soldDuringPeriod) || 0) > 0
+                );
+                const detailTotalSoldUnits = detailSoldProducts.reduce(
+                  (sum, p) => sum + (Number(p.soldDuringPeriod) || 0),
+                  0
+                );
+                const highestSoldProduct = detailSoldProducts.length > 0 ? detailSoldProducts[0] : null;
+                const highestProductImage = highestSoldProduct
+                  ? (highestSoldProduct.image ||
+                      products.find(
+                        (p) =>
+                          (highestSoldProduct.productId && p.id === highestSoldProduct.productId) ||
+                          (p.productName &&
+                            p.productName.trim().toLowerCase() ===
+                              (highestSoldProduct.productName || "").trim().toLowerCase()) ||
+                          (p.name &&
+                            p.name.trim().toLowerCase() ===
+                              (highestSoldProduct.productName || "").trim().toLowerCase())
+                      )?.image ||
+                      null)
+                  : null;
 
-                  {currentDetailEmployee.productsList.length > 0 && currentDetailEmployee.soldDuringPeriod > 0 ? (
-                    <div className="h-[240px] w-full min-w-0 flex items-center relative overflow-hidden">
-                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                        <PieChart>
-                          <Pie
-                            data={currentDetailEmployee.productsList.filter(p => p.soldDuringPeriod > 0)}
-                            dataKey="soldDuringPeriod"
-                            nameKey="productName"
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={60}
-                            outerRadius={90}
-                            paddingAngle={5}
+                return (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 my-6">
+                    {/* 1. Upgraded Product Sales Distribution */}
+                    <div className="lg:col-span-8 bg-gray-50/70 border border-gray-100 rounded-3xl p-6 flex flex-col justify-between">
+                      <div>
+                        {/* Section Header */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                          <div>
+                            <h3 className="text-lg font-bold text-[#111] font-['Poppins'] flex items-center gap-2">
+                              <FiPieChart className="text-[#D4AF37]" /> Product Sales Distribution
+                            </h3>
+                            <p className="text-xs text-gray-500 font-medium mt-0.5">
+                              Breakdown of product sales volume, revenue generation & unit share
+                            </p>
+                          </div>
+                          <span className="text-[11px] font-bold text-gray-600 bg-white border border-gray-200/80 px-3 py-1 rounded-full self-start sm:self-auto shadow-xs">
+                            Unit Sales Share
+                          </span>
+                        </div>
+
+                        {/* Summary Metrics */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                          <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-xs">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">
+                              Total Units Sold
+                            </span>
+                            <span className="text-base font-bold text-[#111] font-['Poppins']">
+                              {formatNumber(currentDetailEmployee?.soldDuringPeriod || 0)}{" "}
+                              <span className="text-xs font-semibold text-gray-400">units</span>
+                            </span>
+                          </div>
+                          <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-xs">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">
+                              Total Sales Revenue
+                            </span>
+                            <span className="text-base font-bold text-green-600 font-['Poppins']">
+                              ₹{formatCurrency(currentDetailEmployee?.revenue)}
+                            </span>
+                          </div>
+                          <div className="col-span-2 sm:col-span-1 bg-white border border-gray-100 rounded-2xl p-3 shadow-xs">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">
+                              Active Products Sold
+                            </span>
+                            <span className="text-base font-bold text-[#D4AF37] font-['Poppins']">
+                              {detailSoldProducts.length}{" "}
+                              <span className="text-xs font-semibold text-gray-400">
+                                product{detailSoldProducts.length === 1 ? "" : "s"}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Chart + Legend View */}
+                        {detailSoldProducts.length > 0 ? (
+                          <div className="flex flex-col md:flex-row items-center gap-6 mt-2">
+                            {/* Donut Chart */}
+                            <div className="h-[220px] w-full md:w-5/12 min-w-0 flex items-center justify-center relative overflow-hidden">
+                              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                                <PieChart>
+                                  <Pie
+                                    data={detailSoldProducts}
+                                    dataKey="soldDuringPeriod"
+                                    nameKey="productName"
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={55}
+                                    outerRadius={85}
+                                    paddingAngle={4}
+                                  >
+                                    {detailSoldProducts.map((entry, index) => (
+                                      <Cell
+                                        key={`cell-${entry.productId || index}`}
+                                        fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                      />
+                                    ))}
+                                  </Pie>
+                                  <Tooltip
+                                    formatter={(val, name, props) => {
+                                      const p = props.payload;
+                                      const qty = Number(val) || 0;
+                                      const share =
+                                        detailTotalSoldUnits > 0
+                                          ? ((qty / detailTotalSoldUnits) * 100).toFixed(1)
+                                          : "0.0";
+                                      return [
+                                        `${qty} pcs (${share}% share) • ₹${formatCurrency(p.revenue)}`,
+                                        p.productName || "Product"
+                                      ];
+                                    }}
+                                    contentStyle={{
+                                      borderRadius: "14px",
+                                      border: "1px solid rgba(255,255,255,0.1)",
+                                      backgroundColor: "#111",
+                                      color: "#fff",
+                                      boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+                                      padding: "10px 14px"
+                                    }}
+                                    itemStyle={{ color: "#D4AF37", fontWeight: "bold", fontSize: "12px" }}
+                                    labelStyle={{ color: "#fff", fontWeight: "bold", fontSize: "13px" }}
+                                  />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+
+                            {/* Compact Legend Table */}
+                            <div className="w-full md:w-7/12 flex flex-col justify-center">
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2 flex items-center justify-between pb-1.5 border-b border-gray-200/70">
+                                <span>Product</span>
+                                <div className="flex items-center gap-3 sm:gap-4">
+                                  <span className="w-12 text-right">Sold</span>
+                                  <span className="w-16 sm:w-20 text-right">Revenue</span>
+                                  <span className="w-12 text-center">Share</span>
+                                </div>
+                              </div>
+                              <div className="max-h-[160px] overflow-y-auto space-y-1.5 pr-1 divide-y divide-gray-100/60">
+                                {detailSoldProducts.map((p, idx) => {
+                                  const color = CHART_COLORS[idx % CHART_COLORS.length];
+                                  const qty = Number(p.soldDuringPeriod) || 0;
+                                  const rev = Number(p.revenue) || 0;
+                                  const share =
+                                    detailTotalSoldUnits > 0
+                                      ? ((qty / detailTotalSoldUnits) * 100).toFixed(1)
+                                      : "0.0";
+                                  return (
+                                    <div
+                                      key={p.productId || idx}
+                                      className="pt-1.5 first:pt-0 flex items-center justify-between text-xs py-0.5 hover:bg-white/80 rounded-lg px-1 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
+                                        <span
+                                          className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
+                                          style={{ backgroundColor: color }}
+                                        />
+                                        <span
+                                          className="font-bold text-[#111] truncate"
+                                          title={p.productName}
+                                        >
+                                          {p.productName || "Product"}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-3 sm:gap-4 shrink-0 text-right">
+                                        <span className="font-semibold text-gray-600 w-12 text-right">
+                                          {qty} pcs
+                                        </span>
+                                        <span className="font-bold text-green-600 w-16 sm:w-20 text-right">
+                                          ₹{formatCurrency(rev)}
+                                        </span>
+                                        <span className="font-bold text-[#111] bg-white border border-gray-200/80 px-1.5 py-0.5 rounded-md text-[10px] w-12 text-center shadow-2xs">
+                                          {share}%
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="h-[200px] flex flex-col items-center justify-center text-gray-400 text-xs font-semibold gap-2">
+                            <FiPieChart className="text-3xl text-gray-300" />
+                            <span>No product sales recorded yet for this period.</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 2. Improved Highest Sold Product Summary Card */}
+                    <div className="lg:col-span-4 bg-[#111] text-white rounded-3xl p-6 flex flex-col justify-between relative overflow-hidden border border-white/5">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-[#D4AF37] blur-[70px] opacity-20 rounded-full pointer-events-none"></div>
+
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="bg-[#D4AF37] text-[#111] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                            Highest Sold Product
+                          </span>
+                          {highestSoldProduct && (
+                            <span className="text-[10px] font-bold text-[#D4AF37] uppercase tracking-wider bg-white/10 px-2 py-0.5 rounded-full">
+                              Top Seller
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Product Name in Crisp White Bold Font */}
+                        <h4 className="text-xl sm:text-2xl font-bold font-['Poppins'] text-white tracking-tight mt-3 line-clamp-2">
+                          {highestSoldProduct ? highestSoldProduct.productName : "None"}
+                        </h4>
+
+                        {/* Actual Product Image Display */}
+                        <div className="my-3 w-full h-36 sm:h-44 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center p-3 relative overflow-hidden group">
+                          {highestProductImage ? (
+                            <img
+                              src={highestProductImage}
+                              alt={highestSoldProduct?.productName || "Product"}
+                              className="w-full h-full object-contain filter drop-shadow-md transition-transform duration-300 group-hover:scale-105"
+                              onError={(e) => {
+                                e.currentTarget.style.display = "none";
+                                const fallback = e.currentTarget.parentElement?.querySelector(
+                                  ".highest-prod-fallback"
+                                );
+                                if (fallback) fallback.style.display = "flex";
+                              }}
+                            />
+                          ) : null}
+                          <div
+                            className={`highest-prod-fallback w-full h-full flex flex-col items-center justify-center gap-2 ${
+                              highestProductImage ? "hidden" : "flex"
+                            }`}
                           >
-                            {currentDetailEmployee.productsList.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            formatter={(val, name, props) => [`${val} pcs (${props.payload.salesPercentageFormatted})`, props.payload.productName]}
-                            contentStyle={{ borderRadius: '14px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  ) : (
-                    <div className="h-[200px] flex items-center justify-center text-gray-400 text-xs font-semibold">
-                      No product sales recorded yet for this period.
-                    </div>
-                  )}
-                </div>
+                            <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-[#D4AF37]">
+                              <FiPackage className="text-2xl" />
+                            </div>
+                            <span className="text-[11px] font-medium text-gray-400">
+                              {highestSoldProduct ? "No Image Available" : "No Sales Logged"}
+                            </span>
+                          </div>
+                        </div>
 
-                {/* Highest Sold Product Summary Card */}
-                <div className="lg:col-span-4 bg-[#111] text-white rounded-3xl p-6 flex flex-col justify-between relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-[#D4AF37] blur-[70px] opacity-20 rounded-full"></div>
-                  <div>
-                    <span className="bg-[#D4AF37] text-[#111] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">
-                      Highest Sold Product
-                    </span>
-                    <h4 className="text-xl font-bold font-['Poppins'] mt-4">
-                      {currentDetailEmployee.productsList.length > 0 && currentDetailEmployee.productsList[0].soldDuringPeriod > 0
-                        ? currentDetailEmployee.productsList[0].productName
-                        : "None"}
-                    </h4>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {currentDetailEmployee.productsList.length > 0 && currentDetailEmployee.productsList[0].soldDuringPeriod > 0
-                        ? `${currentDetailEmployee.productsList[0].soldDuringPeriod} pcs sold • ₹${(currentDetailEmployee.productsList[0].revenue || 0).toLocaleString('en-IN')}`
-                        : "No sales logged for this employee."}
-                    </p>
+                        {/* Sold Quantity & Revenue Metrics */}
+                        <p className="text-xs text-gray-300 mt-1 font-medium">
+                          {highestSoldProduct
+                            ? `${highestSoldProduct.soldDuringPeriod} pcs sold • ₹${formatCurrency(
+                                highestSoldProduct.revenue
+                              )}`
+                            : "No sales logged for this employee."}
+                        </p>
+                      </div>
+
+                      {/* Overall Sales % Footer */}
+                      <div className="pt-4 border-t border-white/10 mt-3 flex items-center justify-between text-xs">
+                        <div className="flex flex-col">
+                          <span className="text-gray-400 font-medium">Overall Sales %:</span>
+                          <span className="text-[10px] text-gray-500">Employee performance</span>
+                        </div>
+                        <span className="text-[#D4AF37] font-bold text-xl font-['Poppins']">
+                          {currentDetailEmployee?.salesPercentageFormatted || "0%"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="pt-6 border-t border-white/10 mt-6 flex items-center justify-between text-xs">
-                    <span className="text-gray-400">Overall Sales %:</span>
-                    <span className="text-[#D4AF37] font-bold text-lg font-['Poppins']">
-                      {currentDetailEmployee.salesPercentageFormatted}
-                    </span>
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Product Breakdown Table */}
               <div className="border border-gray-100 rounded-2xl overflow-hidden mt-6">
@@ -1123,7 +1681,7 @@ const Reports = () => {
                                 </div>
                               </div>
                             </td>
-                            <td className="p-4 text-right text-green-600 font-bold">₹{(prod.revenue || 0).toLocaleString('en-IN')}</td>
+                            <td className="p-4 text-right text-green-600 font-bold">₹{formatCurrency(prod.revenue)}</td>
                           </tr>
                         ))
                       ) : (
@@ -1235,7 +1793,7 @@ const Reports = () => {
 
               <div className="bg-[#111] text-[#D4AF37] p-4 rounded-2xl text-center">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">Total Product Revenue</span>
-                <span className="text-2xl font-bold font-['Poppins']">₹{(selectedDrilldownProduct.revenue || 0).toLocaleString('en-IN')}</span>
+                <span className="text-2xl font-bold font-['Poppins']">₹{formatCurrency(selectedDrilldownProduct.revenue)}</span>
               </div>
             </motion.div>
           </div>
@@ -1495,7 +2053,7 @@ const Reports = () => {
                 </div>
                 <div>
                   <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Revenue</p>
-                  <p className="text-2xl font-bold text-[#D4AF37]">₹{productAnalytics.totalRev}</p>
+                  <p className="text-2xl font-bold text-[#D4AF37]">₹{formatCurrency(productAnalytics.totalRev)}</p>
                 </div>
                 <div className="col-span-2 pt-2 border-t border-white/5 mt-2">
                   <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Last Sold Date</p>
@@ -1507,7 +2065,7 @@ const Reports = () => {
             {/* Product Sales Graph */}
             <div className="lg:col-span-8 bg-white premium-shadow border border-gray-100 rounded-[30px] p-8 flex flex-col">
               <h3 className="text-lg font-bold text-[#111] mb-6 tracking-tight">Product Sales Trend</h3>
-              <div className="flex-1 min-h-[300px] w-full relative overflow-hidden">
+              <div className="h-[300px] w-full min-w-0 relative overflow-hidden">
                 {productAnalytics.chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <BarChart data={productAnalytics.chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
@@ -1558,7 +2116,7 @@ const Reports = () => {
                     <h4 className="font-bold text-[#111] font-['Poppins'] text-lg truncate mb-2">{prod.name}</h4>
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-bold text-gray-600 bg-gray-50 px-2 py-0.5 rounded-md">{prod.qty} Sold</span>
-                      <span className="font-bold text-[#D4AF37]">₹{prod.revenue}</span>
+                      <span className="font-bold text-[#D4AF37]">₹{formatCurrency(prod.revenue)}</span>
                     </div>
                   </div>
                 </div>
