@@ -1411,32 +1411,80 @@ export const calculatePeriodEmployeeStockReport = ({
 }) => {
   const { startMs, endMs } = getPeriodTimestamps(filterType, startDate, endDate);
 
-  const empMap = {};
+  const normalizeStr = (str) => (str || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  const empLookupByUid = {};
+  const empLookupByAlias = {};
   if (Array.isArray(employeesList)) {
     employeesList.forEach(e => {
-      if (e && e.uid) empMap[e.uid] = e;
-    });
-  }
-
-  const prodMapById = {};
-  const prodMapByName = {};
-  if (Array.isArray(productsList)) {
-    productsList.forEach(p => {
-      if (p && p.id) prodMapById[p.id] = p;
-      if (p && (p.productName || p.name)) {
-        prodMapByName[(p.productName || p.name).trim().toLowerCase()] = p;
+      if (e && e.uid) {
+        empLookupByUid[e.uid] = e;
+        const cleanUid = String(e.uid).trim().toLowerCase();
+        empLookupByAlias[cleanUid] = e;
+        if (e.userId) empLookupByAlias[String(e.userId).trim().toLowerCase()] = e;
+        if (e.name) empLookupByAlias[String(e.name).trim().toLowerCase()] = e;
+        if (e.email) empLookupByAlias[String(e.email).trim().toLowerCase()] = e;
       }
     });
   }
 
+  const resolveEmpUid = (rawId, defaultName = "") => {
+    if (!rawId) return null;
+    const str = String(rawId).trim();
+    if (str === "company" || str === "admin_stock" || str === "admin") return null;
+
+    if (empLookupByUid[str]) return empLookupByUid[str].uid;
+
+    const cleanStr = str.toLowerCase();
+    if (empLookupByAlias[cleanStr]) return empLookupByAlias[cleanStr].uid;
+
+    if (defaultName) {
+      const cleanName = String(defaultName).trim().toLowerCase();
+      if (empLookupByAlias[cleanName]) return empLookupByAlias[cleanName].uid;
+    }
+
+    return str;
+  };
+
+  const prodLookupById = {};
+  const prodLookupByName = {};
+  const prodLookupByNormalized = {};
+  if (Array.isArray(productsList)) {
+    productsList.forEach(p => {
+      if (!p || !p.id) return;
+      prodLookupById[p.id] = p;
+      const pName = p.productName || p.name;
+      if (pName) {
+        const nameKey = pName.trim().toLowerCase();
+        prodLookupByName[nameKey] = p;
+        prodLookupByNormalized[normalizeStr(pName)] = p;
+      }
+    });
+  }
+
+  const findProduct = (item) => {
+    if (!item) return null;
+    const rawId = (item.productId || "").trim();
+    const rawName = (item.productName || item.name || "").trim();
+    const normName = rawName.toLowerCase();
+    const normClean = normalizeStr(rawName);
+
+    return (rawId && prodLookupById[rawId]) ||
+      (normName && prodLookupByName[normName]) ||
+      (normClean && prodLookupByNormalized[normClean]) || null;
+  };
+
   const employeesData = {};
 
-  const ensureEmp = (uid, defaultName = "Employee") => {
-    if (!employeesData[uid]) {
-      const eDb = empMap[uid];
+  const ensureEmp = (rawId, defaultName = "Employee") => {
+    const canonicalUid = resolveEmpUid(rawId, defaultName) || rawId;
+    if (!canonicalUid || canonicalUid === "company" || canonicalUid === "admin_stock") return null;
+
+    if (!employeesData[canonicalUid]) {
+      const eDb = empLookupByUid[canonicalUid] || empLookupByAlias[String(rawId).trim().toLowerCase()];
       const photo = eDb?.photoURL || eDb?.photoUrl || eDb?.photo || eDb?.profilePhoto || eDb?.avatarUrl || "";
-      employeesData[uid] = {
-        uid,
+      employeesData[canonicalUid] = {
+        uid: canonicalUid,
         name: eDb?.name || defaultName,
         photoURL: photo,
         email: eDb?.email || "",
@@ -1456,7 +1504,7 @@ export const calculatePeriodEmployeeStockReport = ({
         products: {}
       };
     }
-    return employeesData[uid];
+    return employeesData[canonicalUid];
   };
 
   // Pre-initialize from employees list
@@ -1466,18 +1514,98 @@ export const calculatePeriodEmployeeStockReport = ({
     });
   }
 
-  // 1. Process Stock Issues
+  const ensureEmpProduct = (empObj, item) => {
+    const dbProd = findProduct(item);
+    const rawId = (item.productId || "").trim();
+    const rawName = (item.productName || item.name || "Unknown Product").trim();
+    const normName = rawName.toLowerCase();
+    const pId = dbProd?.id || (rawId !== "" ? rawId : normName);
+    const pName = dbProd?.productName || dbProd?.name || item.productName || item.name || "Product";
+    const image = dbProd?.image || dbProd?.imageUrl || dbProd?.photo || null;
+    const category = dbProd?.category || item.category || "General";
+    const unit = item.unit || dbProd?.unit || "units";
+    const price = Number(item.price || dbProd?.sellingPrice || 0);
+
+    if (!empObj.products[pId]) {
+      empObj.products[pId] = {
+        productId: pId,
+        productName: pName,
+        image,
+        category,
+        unit,
+        unitPrice: price,
+        openingStock: 0,
+        issuedDuringPeriod: 0,
+        transfersReceived: 0,
+        transfersSent: 0,
+        adjustments: 0,
+        totalAvailable: 0,
+        soldDuringPeriod: 0,
+        remainingStock: 0,
+        salesPercentage: 0,
+        salesPercentageFormatted: "0%",
+        revenue: 0,
+        invoiceCount: 0,
+        firstSaleDate: null,
+        lastSaleDate: null
+      };
+    }
+    const prodObj = empObj.products[pId];
+    if (!prodObj.image && image) prodObj.image = image;
+    if (price > 0 && prodObj.unitPrice === 0) prodObj.unitPrice = price;
+
+    return prodObj;
+  };
+
+  // 1. Process Stock Issues & Transfers
   stockIssues.forEach(issue => {
-    const uid = issue.employeeId;
-    if (!uid) return;
+    if (issue.status === "REVERSED") return;
+
+    const isEmployeeToEmployee =
+      issue.transferType === "EMPLOYEE_TO_EMPLOYEE" ||
+      (issue.fromEmployeeId &&
+        issue.fromEmployeeId !== "company" &&
+        issue.fromEmployeeId !== "admin_stock" &&
+        issue.fromEmployeeId !== "admin" &&
+        issue.toEmployeeId &&
+        issue.fromEmployeeId !== issue.toEmployeeId);
+
+    const isAddition =
+      issue.type === "STOCK_IN" ||
+      issue.type === "addition" ||
+      issue.type === "received" ||
+      issue.type === "add" ||
+      issue.type === "stock_add" ||
+      ((issue.employeeId === "admin_stock" || issue.employeeId === "company") &&
+        issue.type !== "TRANSFER" && issue.type !== "transfer" && issue.type !== "issue") ||
+      (issue.from && (
+        issue.from.toLowerCase().includes("purchase") ||
+        issue.from.toLowerCase().includes("supplier") ||
+        issue.from.toLowerCase().includes("warehouse") ||
+        issue.from.toLowerCase().includes("vendor") ||
+        issue.from.toLowerCase().includes("factory") ||
+        issue.from.toLowerCase().includes("external")
+      ));
+
+    const isAdjustment = issue.type === "ADJUSTMENT" || issue.type === "adjustment";
+    const isReversal = issue.type === "REVERSAL" || issue.type === "reversal";
+
+    const isCompanyToEmployee = !isAddition && !isAdjustment && !isReversal && !isEmployeeToEmployee && (
+      issue.type === "TRANSFER" ||
+      issue.type === "transfer" ||
+      issue.type === "issue" ||
+      issue.transferType === "COMPANY_TO_EMPLOYEE" ||
+      issue.fromEmployeeId === "company" ||
+      issue.fromEmployeeId === "admin_stock" ||
+      issue.fromEmployeeId === "admin"
+    );
 
     let issueTs = issue.createdAt || Date.now();
     if (issue.date && typeof issue.date === "string" && issue.date.includes("-")) {
       const [y, m, d] = issue.date.split('-');
-      if (y && m && d) issueTs = new Date(y, m - 1, d).getTime();
+      if (y && m && d) issueTs = new Date(y, m - 1, d, 12, 0, 0).getTime();
     }
 
-    const empObj = ensureEmp(uid, issue.employeeName);
     const rawProds = issue.products;
     const issueProds = Array.isArray(rawProds) ? rawProds : (rawProds && typeof rawProds === 'object' ? Object.values(rawProds) : []);
     const items = issueProds.length > 0
@@ -1485,6 +1613,7 @@ export const calculatePeriodEmployeeStockReport = ({
       : (issue.quantity ? [{
         productId: issue.productId,
         productName: issue.productName,
+        category: issue.category,
         quantity: issue.quantity,
         unit: issue.unit,
         price: issue.price
@@ -1492,106 +1621,85 @@ export const calculatePeriodEmployeeStockReport = ({
 
     items.forEach(item => {
       const qty = Number(item.quantity) || 0;
-      if (qty <= 0) return;
+      if (qty === 0) return;
 
-      const rawId = (item.productId || "").trim();
-      const rawName = (item.productName || "Unknown Product").trim();
-      const normName = rawName.toLowerCase();
-      const dbProd = (rawId && prodMapById[rawId]) || prodMapByName[normName] || null;
+      if (isCompanyToEmployee) {
+        const toUid = resolveEmpUid(issue.toEmployeeId || issue.employeeId, issue.to || issue.employeeName);
+        if (!toUid) return;
+        const empObj = ensureEmp(toUid, issue.to || issue.employeeName);
+        if (!empObj) return;
+        const prodObj = ensureEmpProduct(empObj, item);
 
-      const pId = dbProd?.id || (rawId !== "" ? rawId : normName);
-      const pName = dbProd?.productName || dbProd?.name || item.productName || "Product";
-      const image = dbProd?.image || dbProd?.imageUrl || dbProd?.photo || null;
-      const category = dbProd?.category || "General";
-      const unit = item.unit || dbProd?.unit || "units";
-      const price = Number(item.price || dbProd?.sellingPrice || 0);
+        if (issueTs < startMs) {
+          prodObj.openingStock += qty;
+        } else if (issueTs >= startMs && issueTs <= endMs) {
+          prodObj.issuedDuringPeriod += qty;
+        }
+      } else if (isEmployeeToEmployee) {
+        const fromUid = resolveEmpUid(issue.fromEmployeeId, issue.from);
+        const toUid = resolveEmpUid(issue.toEmployeeId || issue.employeeId, issue.to || issue.employeeName);
 
-      if (!empObj.products[pId]) {
-        empObj.products[pId] = {
-          productId: pId,
-          productName: pName,
-          image,
-          category,
-          unit,
-          unitPrice: price,
-          openingStock: 0,
-          issuedDuringPeriod: 0,
-          totalAvailable: 0,
-          soldDuringPeriod: 0,
-          remainingStock: 0,
-          salesPercentage: 0,
-          salesPercentageFormatted: "0%",
-          revenue: 0,
-          invoiceCount: 0,
-          firstSaleDate: null,
-          lastSaleDate: null
-        };
-      }
-      const prodObj = empObj.products[pId];
-      if (!prodObj.image && image) prodObj.image = image;
-      if (price > 0) prodObj.unitPrice = price;
+        const fromEmp = fromUid ? ensureEmp(fromUid, issue.from) : null;
+        const toEmp = toUid ? ensureEmp(toUid, issue.to || issue.employeeName) : null;
 
-      if (issueTs < startMs) {
-        prodObj.openingStock += qty;
-      } else if (issueTs >= startMs && issueTs <= endMs) {
-        prodObj.issuedDuringPeriod += qty;
+        if (issueTs < startMs) {
+          if (fromEmp) {
+            const p = ensureEmpProduct(fromEmp, item);
+            p.openingStock -= qty;
+          }
+          if (toEmp) {
+            const p = ensureEmpProduct(toEmp, item);
+            p.openingStock += qty;
+          }
+        } else if (issueTs >= startMs && issueTs <= endMs) {
+          if (fromEmp) {
+            const p = ensureEmpProduct(fromEmp, item);
+            p.transfersSent += qty;
+          }
+          if (toEmp) {
+            const p = ensureEmpProduct(toEmp, item);
+            p.transfersReceived += qty;
+          }
+        }
+      } else if (isAdjustment) {
+        const adjEmpId = resolveEmpUid(issue.employeeId, issue.employeeName);
+        if (adjEmpId) {
+          const empObj = ensureEmp(adjEmpId, issue.employeeName);
+          if (empObj) {
+            const p = ensureEmpProduct(empObj, item);
+            if (issueTs < startMs) {
+              p.openingStock += qty;
+            } else if (issueTs >= startMs && issueTs <= endMs) {
+              p.adjustments += qty;
+            }
+          }
+        }
       }
     });
   });
 
   // 2. Process Invoices / Sales (using historical invoice item total and price)
   invoices.forEach(inv => {
-    const uid = inv.createdByUid;
+    const uid = resolveEmpUid(inv.createdByUid, inv.createdByName);
     if (!uid) return;
+    const empObj = ensureEmp(uid, inv.createdByName);
+    if (!empObj) return;
 
     let saleTs = inv.createdAt || Date.now();
     if (inv.invoiceDate && typeof inv.invoiceDate === "string" && inv.invoiceDate.includes("-")) {
       const [y, m, d] = inv.invoiceDate.split('-');
-      if (y && m && d) saleTs = new Date(y, m - 1, d).getTime();
+      if (y && m && d) saleTs = new Date(y, m - 1, d, 12, 0, 0).getTime();
     }
 
-    const empObj = ensureEmp(uid, inv.createdByName);
     const prods = Array.isArray(inv.products) ? inv.products : (inv.products && typeof inv.products === 'object' ? Object.values(inv.products) : []);
 
     prods.forEach(p => {
       const qty = Number(p.quantity) || 0;
       if (qty <= 0) return;
 
-      const rawId = (p.productId || "").trim();
-      const rawName = (p.productName || p.name || "Unknown Product").trim();
-      const normName = rawName.toLowerCase();
-      const dbProd = (rawId && prodMapById[rawId]) || prodMapByName[normName] || null;
-
-      const pId = dbProd?.id || (rawId !== "" ? rawId : normName);
-      const pName = dbProd?.productName || dbProd?.name || p.productName || "Product";
-      const image = dbProd?.image || dbProd?.imageUrl || dbProd?.photo || null;
-      const category = dbProd?.category || p.category || "General";
-      const unitPrice = Number(p.price || dbProd?.sellingPrice || 0);
+      const prodObj = ensureEmpProduct(empObj, p);
+      const unitPrice = Number(p.price || prodObj.unitPrice || 0);
       const lineTotal = Number(p.total) || (qty * unitPrice);
-
-      if (!empObj.products[pId]) {
-        empObj.products[pId] = {
-          productId: pId,
-          productName: pName,
-          image,
-          category,
-          unit: "units",
-          unitPrice,
-          openingStock: 0,
-          issuedDuringPeriod: 0,
-          totalAvailable: 0,
-          soldDuringPeriod: 0,
-          remainingStock: 0,
-          salesPercentage: 0,
-          salesPercentageFormatted: "0%",
-          revenue: 0,
-          invoiceCount: 0,
-          firstSaleDate: null,
-          lastSaleDate: null
-        };
-      }
-      const prodObj = empObj.products[pId];
-      if (!prodObj.image && image) prodObj.image = image;
 
       if (saleTs < startMs) {
         prodObj.openingStock -= qty;
@@ -1612,18 +1720,18 @@ export const calculatePeriodEmployeeStockReport = ({
 
   // 3. Process Expenses during period
   expenses.forEach(exp => {
-    const uid = exp.createdByUid;
+    const uid = resolveEmpUid(exp.createdByUid, exp.createdByName);
     if (!uid) return;
 
     let expTs = exp.createdAt || Date.now();
     if (exp.date && typeof exp.date === "string" && exp.date.includes("-")) {
       const [y, m, d] = exp.date.split('-');
-      if (y && m && d) expTs = new Date(y, m - 1, d).getTime();
+      if (y && m && d) expTs = new Date(y, m - 1, d, 12, 0, 0).getTime();
     }
 
     if (expTs >= startMs && expTs <= endMs) {
       const empObj = ensureEmp(uid, exp.createdByName);
-      empObj.expenses += Number(exp.amount) || 0;
+      if (empObj) empObj.expenses += Number(exp.amount) || 0;
     }
   });
 
@@ -1631,12 +1739,13 @@ export const calculatePeriodEmployeeStockReport = ({
   const reportList = Object.values(employeesData).map(emp => {
     let empOpening = 0;
     let empIssued = 0;
+    let empAvailable = 0;
     let empSold = 0;
+    let empRemaining = 0;
     let empRevenue = 0;
 
     const productList = Object.values(emp.products).map(p => {
-      p.openingStock = Math.max(0, p.openingStock);
-      p.totalAvailable = p.openingStock + p.issuedDuringPeriod;
+      p.totalAvailable = p.openingStock + p.issuedDuringPeriod + p.transfersReceived - p.transfersSent + p.adjustments;
       p.remainingStock = p.totalAvailable - p.soldDuringPeriod;
 
       p.salesPercentage = p.totalAvailable > 0
@@ -1650,7 +1759,9 @@ export const calculatePeriodEmployeeStockReport = ({
 
       empOpening += p.openingStock;
       empIssued += p.issuedDuringPeriod;
+      empAvailable += p.totalAvailable;
       empSold += p.soldDuringPeriod;
+      empRemaining += p.remainingStock;
       empRevenue += p.revenue;
 
       return p;
@@ -1659,9 +1770,9 @@ export const calculatePeriodEmployeeStockReport = ({
     emp.productsList = productList;
     emp.openingStock = empOpening;
     emp.issuedDuringPeriod = empIssued;
-    emp.totalAvailable = empOpening + empIssued;
+    emp.totalAvailable = empAvailable;
     emp.soldDuringPeriod = empSold;
-    emp.remainingStock = emp.totalAvailable - empSold;
+    emp.remainingStock = empRemaining;
     emp.salesPercentage = emp.totalAvailable > 0
       ? Number(((empSold / emp.totalAvailable) * 100).toFixed(1))
       : (empSold > 0 ? 100 : 0);

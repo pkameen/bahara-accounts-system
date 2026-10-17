@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import PwaBanner, { OnlineOfflineBadge, InstallAppButton } from "./PwaBanner";
 
 import EmployeeAvatar from "./EmployeeAvatar";
+import EmployeeBottomNav from "./EmployeeBottomNav";
 
 export default function Layout({ children }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -114,9 +115,16 @@ export default function Layout({ children }) {
 
 
         {/* Main Content Area */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-10 scroll-smooth custom-scrollbar">
+        <div
+          className={`flex-1 overflow-y-auto p-4 md:p-6 lg:p-10 scroll-smooth custom-scrollbar ${
+            role === "employee" ? "pb-28 lg:pb-10" : ""
+          }`}
+        >
           {children || <Outlet />}
         </div>
+
+        {/* 5-Item Mobile Bottom Navigation for Employees */}
+        {role === "employee" && <EmployeeBottomNav />}
       </main>
     </div>
   );
