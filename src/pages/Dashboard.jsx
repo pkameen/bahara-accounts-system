@@ -434,11 +434,10 @@ const Dashboard = () => {
             type="button"
             id="btn-select-other-income"
             onClick={() => setOtherIncomeCategory("other_income")}
-            className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all text-center truncate cursor-pointer ${
-              otherIncomeCategory === "other_income"
+            className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all text-center truncate cursor-pointer ${otherIncomeCategory === "other_income"
                 ? "bg-white text-[#064e3b] shadow-md"
                 : "text-white/80 hover:text-white hover:bg-white/10"
-            }`}
+              }`}
             title="Other Income"
           >
             Other Income
@@ -447,11 +446,10 @@ const Dashboard = () => {
             type="button"
             id="btn-select-gst-refund"
             onClick={() => setOtherIncomeCategory("gst_refund")}
-            className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all text-center truncate cursor-pointer ${
-              otherIncomeCategory === "gst_refund"
+            className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all text-center truncate cursor-pointer ${otherIncomeCategory === "gst_refund"
                 ? "bg-white text-[#064e3b] shadow-md"
                 : "text-white/80 hover:text-white hover:bg-white/10"
-            }`}
+              }`}
             title="GST Refund"
           >
             GST Refund
@@ -460,11 +458,10 @@ const Dashboard = () => {
             type="button"
             id="btn-select-credit-recovery"
             onClick={() => setOtherIncomeCategory("credit_recovery")}
-            className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all text-center truncate cursor-pointer ${
-              otherIncomeCategory === "credit_recovery"
+            className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all text-center truncate cursor-pointer ${otherIncomeCategory === "credit_recovery"
                 ? "bg-white text-[#064e3b] shadow-md"
                 : "text-white/80 hover:text-white hover:bg-white/10"
-            }`}
+              }`}
             title="Credit Recovery"
           >
             Credit Recovery

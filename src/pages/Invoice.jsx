@@ -15,18 +15,22 @@ import {
   FiMapPin,
   FiPackage,
   FiLoader,
-  FiClock,
-  FiAlertTriangle
+  FiClock
 } from "react-icons/fi";
 import logoIcon from '../assets/bahara.logo.jpg';
 
 const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.1 } } };
 const itemVariants = { hidden: { y: 20, opacity: 0 }, show: { y: 0, opacity: 1, transition: { type: "spring", stiffness: 300, damping: 24 } } };
 
-// Custom Searchable Product Selector enforcing Admin Products selection ONLY
-const ProductSelector = ({ selectedProductId, selectedProductName, onSelectProduct, availableProducts }) => {
+// Searchable Product Selector supporting both Admin Catalog products and Custom Items / Songs
+const ProductSelector = ({
+  productName,
+  productId,
+  onSelectProduct,
+  onProductNameChange,
+  availableProducts = []
+}) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
   const dropdownRef = useRef(null);
 
   // Close dropdown on click outside
@@ -41,91 +45,70 @@ const ProductSelector = ({ selectedProductId, selectedProductName, onSelectProdu
   }, []);
 
   const selectedProduct = availableProducts.find(
-    (ap) => ap.id === selectedProductId || ap.productName === selectedProductName
+    (ap) => ap.id === productId || (productId && ap.productName?.toLowerCase() === productName?.toLowerCase())
   );
 
-  const filteredProducts = availableProducts.filter((ap) =>
-    ap.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (ap.category && ap.category.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const trimmedQuery = (productName || "").trim().toLowerCase();
+  const filteredProducts = trimmedQuery === ""
+    ? availableProducts.slice(0, 8)
+    : availableProducts.filter((ap) =>
+        ap.productName?.toLowerCase().includes(trimmedQuery) ||
+        (ap.category && ap.category.toLowerCase().includes(trimmedQuery))
+      );
 
   return (
     <div className="relative w-full" ref={dropdownRef}>
-      {selectedProduct ? (
-        <div className="w-full bg-white border border-gray-200 rounded-xl p-3 flex items-center justify-between shadow-sm">
-          <div className="flex items-center gap-2.5 overflow-hidden">
-            <FiPackage className="text-[#D4AF37] shrink-0" />
-            <div className="truncate">
-              <span className="font-bold text-sm text-[#111] block truncate">{selectedProduct.productName}</span>
-              <span className="text-[10px] text-gray-400 font-semibold uppercase">
-                {selectedProduct.category || "General"} • Stock: {selectedProduct.stock ?? "N/A"}
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              onSelectProduct(null);
-              setSearchTerm("");
-              setIsOpen(true);
-            }}
-            className="text-xs font-bold text-[#D4AF37] hover:underline shrink-0 ml-2 cursor-pointer"
-          >
-            Change
-          </button>
-        </div>
-      ) : (
-        <div className="relative">
-          <div className="relative flex items-center">
-            <input
-              type="text"
-              readOnly={availableProducts.length === 0}
-              placeholder={
-                availableProducts.length === 0
-                  ? "No products available. Please add products from Admin."
-                  : "Search & Select Product ▼"
-              }
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setIsOpen(true);
-              }}
-              onFocus={() => {
-                if (availableProducts.length > 0) setIsOpen(true);
-              }}
-              className={`w-full bg-white border border-gray-200 focus:border-[#D4AF37]/50 rounded-xl text-sm font-semibold text-[#111] outline-none transition-all p-3.5 pr-10 ${availableProducts.length === 0 ? "bg-gray-100 cursor-not-allowed text-gray-400" : ""
-                }`}
-            />
-            <FiPackage className="absolute right-3.5 text-gray-400 pointer-events-none" />
-          </div>
+      <div className="relative flex items-center">
+        <input
+          type="text"
+          placeholder="Search catalog or type item / song name..."
+          value={productName || ""}
+          onChange={(e) => {
+            onProductNameChange(e.target.value);
+            setIsOpen(true);
+          }}
+          onFocus={() => {
+            if (availableProducts.length > 0) setIsOpen(true);
+          }}
+          className="w-full bg-white border border-gray-200 focus:border-[#D4AF37]/50 rounded-xl text-sm font-semibold text-[#111] outline-none transition-all p-3.5 pr-20 placeholder:text-gray-400"
+        />
 
-          {isOpen && availableProducts.length > 0 && (
-            <div className="absolute z-50 left-0 right-0 top-full mt-1.5 bg-white border border-gray-100 rounded-2xl shadow-2xl max-h-60 overflow-y-auto">
-              {filteredProducts.length > 0 ? (
-                filteredProducts.map((ap) => (
-                  <div
-                    key={ap.id}
-                    onClick={() => {
-                      onSelectProduct(ap);
-                      setIsOpen(false);
-                      setSearchTerm("");
-                    }}
-                    className="p-3.5 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-0 flex items-center justify-between transition-colors"
-                  >
-                    <div>
-                      <div className="font-bold text-sm text-[#111]">{ap.productName}</div>
-                      <div className="text-xs text-gray-400">
-                        {ap.category || "General"} • Stock: {ap.stock ?? "N/A"}
-                      </div>
-                    </div>
-                    <div className="font-bold text-sm text-[#D4AF37]">₹{ap.sellingPrice}</div>
+        <div className="absolute right-3.5 flex items-center gap-1.5 pointer-events-none">
+          {selectedProduct && (
+            <span className="text-[10px] font-bold bg-[#D4AF37]/15 text-[#8c7118] px-2 py-0.5 rounded-md hidden sm:inline-block">
+              Catalog
+            </span>
+          )}
+          <FiPackage className="text-gray-400" />
+        </div>
+      </div>
+
+      {/* Suggested Products Dropdown */}
+      {isOpen && availableProducts.length > 0 && (
+        <div className="absolute z-50 left-0 right-0 top-full mt-1.5 bg-white border border-gray-100 rounded-2xl shadow-2xl max-h-60 overflow-y-auto">
+          {filteredProducts.length > 0 ? (
+            filteredProducts.map((ap) => (
+              <div
+                key={ap.id}
+                onMouseDown={() => {
+                  onSelectProduct(ap);
+                  setIsOpen(false);
+                }}
+                className="p-3.5 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-0 flex items-center justify-between transition-colors"
+              >
+                <div>
+                  <div className="font-bold text-sm text-[#111]">{ap.productName}</div>
+                  <div className="text-xs text-gray-400">
+                    {ap.category || "General"} {typeof ap.stock === "number" && ap.stock > 0 ? `• Stock: ${ap.stock}` : ""}
                   </div>
-                ))
-              ) : (
-                <div className="p-4 text-center text-xs font-semibold text-gray-400">
-                  No matching product found.
                 </div>
-              )}
+                <div className="font-bold text-sm text-[#D4AF37]">₹{ap.sellingPrice}</div>
+              </div>
+            ))
+          ) : (
+            <div className="p-3.5 text-xs text-gray-500 flex items-center justify-between">
+              <span>Billing custom item: <strong className="text-[#111]">"{productName}"</strong></span>
+              <span className="text-[10px] font-bold text-[#D4AF37] uppercase">Custom</span>
             </div>
           )}
         </div>
@@ -173,11 +156,8 @@ const Invoice = () => {
     });
   }, []);
 
-  // Filter selectable products for new invoices (exclude Out of Stock items for new invoices)
-  const selectableProducts = availableProducts.filter(ap => {
-    if (editId) return true; // Include all items when editing
-    return ap.status !== "Out of Stock";
-  });
+  // Available catalog products
+  const selectableProducts = availableProducts;
 
   // Prefill Data if Editing
   useEffect(() => {
@@ -287,6 +267,21 @@ const Invoice = () => {
     }
   };
 
+  const handleCustomProductNameChange = (rowId, newName) => {
+    // Check if newName matches any available catalog product
+    const matched = availableProducts.find(
+      ap => ap.productName?.toLowerCase() === newName.trim().toLowerCase()
+    );
+
+    setInvoiceProducts(prev => prev.map(p => p.id === rowId ? {
+      ...p,
+      productName: newName,
+      productId: matched ? matched.id : "",
+      category: matched ? (matched.category || "General") : (p.category || "General"),
+      price: (matched && (!p.price || p.price === "" || Number(p.price) === 0)) ? matched.sellingPrice : p.price
+    } : p));
+  };
+
   // Calculations
   const processedProducts = invoiceProducts.map(ip => {
     const price = Number(ip.price) || 0;
@@ -309,10 +304,18 @@ const Invoice = () => {
       return;
     }
 
-    // STRICT VALIDATION: All products MUST come from Admin Products
-    const invalidProducts = processedProducts.filter(p => !p.productId || !p.productName.trim() || Number(p.price) <= 0 || Number(p.qty) <= 0);
-    if (invalidProducts.length > 0) {
-      toast.error("Please select a valid product from Admin → Products for all item rows", {
+    // Validation: All product rows must have an item or product name
+    const emptyItems = processedProducts.filter(p => !p.productName.trim());
+    if (emptyItems.length > 0) {
+      toast.error("Please enter an item or product name for all rows", {
+        style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
+      });
+      return;
+    }
+
+    const invalidItems = processedProducts.filter(p => Number(p.price) < 0 || Number(p.qty) <= 0);
+    if (invalidItems.length > 0) {
+      toast.error("Please enter a valid rate and quantity for all item rows", {
         style: { borderRadius: '14px', background: '#111', color: '#D4AF37' }
       });
       return;
@@ -331,35 +334,17 @@ const Invoice = () => {
         });
       }
 
-      // Subtract newly defined quantities
-      processedProducts.forEach(newP => {
-        if (newP.productId) {
-          stockChanges[newP.productId] = (stockChanges[newP.productId] || 0) - Number(newP.qty);
-        }
-      });
-
-      // Validate real stock capacities before saving
-      for (let pid of Object.keys(stockChanges)) {
-        if (!pid) continue;
-        const dbP = availableProducts.find(p => p.id === pid);
-        if (dbP) {
-          const resultingStock = Number(dbP.stock || 0) + stockChanges[pid];
-          if (resultingStock < 0) {
-            toast.error(`Not enough stock for ${dbP.productName} (Shortfall: ${Math.abs(resultingStock)})`);
-            setLoading(false);
-            return;
-          }
-        }
-      }
-
+      // Map Final Products (supports custom items / songs as well as catalog products)
       const finalProducts = processedProducts.map((p) => {
         const productGrandTotal = p.total;
-        const matchedDbProduct = availableProducts.find(ap => ap.id === p.productId);
+        const matchedDbProduct = availableProducts.find(
+          ap => (p.productId && ap.id === p.productId) || ap.productName?.toLowerCase() === p.productName?.toLowerCase()
+        );
 
         return {
-          productId: p.productId,
+          productId: p.productId || matchedDbProduct?.id || "",
           customerName: customer.name,
-          productName: p.productName,
+          productName: p.productName.trim(),
           category: p.category || matchedDbProduct?.category || "General",
           quantity: p.qty,
           price: p.price,
@@ -373,6 +358,27 @@ const Invoice = () => {
           invoiceNumber: invoiceNumber
         };
       });
+
+      // Subtract newly defined quantities for products tracked in catalog
+      finalProducts.forEach(newP => {
+        if (newP.productId) {
+          stockChanges[newP.productId] = (stockChanges[newP.productId] || 0) - Number(newP.quantity);
+        }
+      });
+
+      // Validate real stock capacities only if the product actually has positive stock tracked in DB
+      for (let pid of Object.keys(stockChanges)) {
+        if (!pid) continue;
+        const dbP = availableProducts.find(p => p.id === pid);
+        if (dbP && typeof dbP.stock === 'number' && dbP.stock > 0) {
+          const resultingStock = Number(dbP.stock || 0) + stockChanges[pid];
+          if (resultingStock < 0) {
+            toast.error(`Not enough stock for ${dbP.productName} (Available: ${dbP.stock})`);
+            setLoading(false);
+            return;
+          }
+        }
+      }
 
       const currentUserName = userProfile?.name || currentUser?.displayName || currentUser?.email?.split('@')[0] || "Admin";
 
@@ -414,9 +420,10 @@ const Invoice = () => {
       }
 
       for (let pid of Object.keys(stockChanges)) {
+        if (!pid) continue;
         const dbP = availableProducts.find(p => p.id === pid);
-        if (dbP) {
-          updates[`products/${pid}/stock`] = Number(dbP.stock || 0) + stockChanges[pid];
+        if (dbP && typeof dbP.stock === 'number') {
+          updates[`products/${pid}/stock`] = Math.max(0, Number(dbP.stock || 0) + stockChanges[pid]);
         }
       }
 
@@ -513,32 +520,21 @@ const Invoice = () => {
               </button>
             </div>
 
-            {/* Warning Banner if No Products Available in Admin -> Products */}
-            {selectableProducts.length === 0 && (
-              <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3 text-amber-800 text-sm font-semibold">
-                <FiAlertTriangle className="text-xl text-amber-600 shrink-0" />
-                <span>
-                  {role === "employee"
-                    ? "No products available. Please contact administrator to add products from Admin → Products before creating an invoice."
-                    : "No products available. Please add products from Admin → Products before creating an invoice."}
-                </span>
-              </div>
-            )}
+              <div className="space-y-4">
+                {invoiceProducts.map((p) => (
+                  <div key={p.id} className="flex flex-col md:flex-row items-start md:items-center gap-4 bg-gray-50/70 p-4 rounded-[20px] border border-gray-100 hover:bg-white hover:border-[#D4AF37]/40 transition-colors group">
 
-            <div className="space-y-4">
-              {invoiceProducts.map((p) => (
-                <div key={p.id} className="flex flex-col md:flex-row items-start md:items-center gap-4 bg-gray-50/70 p-4 rounded-[20px] border border-gray-100 hover:bg-white hover:border-[#D4AF37]/40 transition-colors group">
-
-                  {/* Product Search & Selection (Admin Products ONLY) */}
-                  <div className="flex-1 w-full">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Product (Admin Catalog)</label>
-                    <ProductSelector
-                      selectedProductId={p.productId}
-                      selectedProductName={p.productName}
-                      onSelectProduct={(ap) => handleSelectProductInRow(p.id, ap)}
-                      availableProducts={selectableProducts}
-                    />
-                  </div>
+                    {/* Product Search & Selection / Custom Item input */}
+                    <div className="flex-1 w-full">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1">Item Description / Product</label>
+                      <ProductSelector
+                        productId={p.productId}
+                        productName={p.productName}
+                        onSelectProduct={(ap) => handleSelectProductInRow(p.id, ap)}
+                        onProductNameChange={(val) => handleCustomProductNameChange(p.id, val)}
+                        availableProducts={selectableProducts}
+                      />
+                    </div>
 
                   {/* Automatically Populated Price (MANUALLY EDITABLE FOR THIS INVOICE ONLY) */}
                   <div className="w-full md:w-32 relative">
